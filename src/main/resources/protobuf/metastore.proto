@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+import "meta.proto";
+
+package io.github.ximin.xlake.metastore;
+
+option java_package = "io.github.ximin.xlake.metastore";
+option java_outer_classname = "MetastoreProto";
+
+message Column {
+  string name = 1;
+  string type = 2; // e.g., "STRING", "BIGINT", "BINARY"
+}
+
+message VcfGroup {
+  string name = 1;
+  repeated string columns = 2;
+}
+
+message TableMeta {
+  string table_name = 1;
+  repeated Column columns = 2;
+  repeated VcfGroup vcf_groups = 3;
+  int32 num_shards = 4;          // 建表时固定，不可变
+  int64 create_time = 5;
+  bool has_primary_key = 6;      // true: LSM模式, false: append-only
+}
+
+message FileMeta {
+  string file_path = 1;          // e.g., hdfs://.../l0/run_001.parquet
+  int32 level = 2;               // 0=L0, 1=L1, ...
+  bytes min_key = 3;             // 用于范围剪枝（LSM模式）
+  bytes max_key = 4;
+  int64 min_commit_ts = 5;       // MVCC 时间戳
+  int64 max_commit_ts = 6;
+  int64 file_size_bytes = 7;
+  repeated string vcf_columns = 8; // 本文件包含的 VCF 列组
+  bool is_tombstone = 9;         // 是否为删除标记文件（预留）
+}
+
+// ===== 请求/响应 =====
+
+message PutRequest {
+  enum Op {
+    PUT = 0;
+    DELETE = 1;
+  }
+  Op op = 1;
+  bytes key = 2;
+  bytes value = 3;
+}
+message PutResponse {}
+
+message GetRequest {
+  bytes key = 1;
+}
+message GetResponse {
+  bytes value = 2;
+}
+
+message ListFilesRequest {
+  string table_name = 1;
+  int32 level = 2;               // -1 表示所有 level
+  bytes start_key = 3;           // 用于分页（预留）
+  int32 limit = 4;               // 最大返回数
+}
+message ListFilesResponse {
+  repeated FileMeta files = 1;
+}
+
+message PBTableOperation {
+  string operation_type = 1;
+  string table_name = 2;
+  optional PBSchema schema = 3;
+  map<string, string> properties = 4;
+  optional string predicate = 5;
+  optional bytes data = 6;
+  int64 timestamp = 7;
+}
+
+message PBCommit {
+  int64 commit_id = 1;
+  repeated PBTableOperation operations = 2;
+  int64 start_time = 3;
+  int64 timeout_ms = 4;
+}
+
+message PBOperationResult {
+  bool success = 1;
+  optional string message = 2;
+  optional int64 commit_id = 3;
+}
+
+service MetastoreService {
+  rpc Write(PutRequest) returns (PutResponse);
+
+  rpc Get(GetRequest) returns (GetResponse);
+
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+
+  rpc BeginCommit(PBCommit) returns (PBOperationResult);
+  rpc Commit(PBInt64Value) returns (PBOperationResult);
+  rpc AbortCommit(PBInt64Value) returns (PBOperationResult);
+
+  rpc GetTableMetadata(PBStringValue) returns (TableMetadata);
+  rpc GetTableSnapshots(PBStringValue) returns (PBSnapshotList);
+  rpc GetSnapshot(PBSnapshotRequest) returns (PBSnapshot);
+
+  rpc CreateTable(TableMetadata) returns (PBOperationResult);
+  rpc DropTable(PBStringValue) returns (PBOperationResult);
+  rpc AlterTable(PBTableOperation) returns (PBOperationResult);
+}

@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package io.github.ximin.xlake;
+
+option java_package = "io.github.ximin.xlake.table";
+option java_multiple_files = true;
+
+enum PrimitiveType {
+  PRIMITIVE_TYPE_UNSPECIFIED = 0;
+  BOOLEAN = 1;
+  INT8 = 2;
+  INT16 = 3;
+  INT32 = 4;
+  INT64 = 5;
+  FLOAT32 = 6;
+  FLOAT64 = 7;
+  DECIMAL = 8;
+  STRING = 9;
+  BINARY = 10;
+  DATE = 11;
+  TIMESTAMP = 12;
+}
+
+message PBDataType {
+  PrimitiveType primitive_type = 1;
+  optional int32 precision = 2;
+  optional int32 scale = 3;
+  bool is_nullable = 4;
+  optional string description = 5;
+}
+
+message PBArrayType {
+  PBDataType element_type = 1;
+}
+
+message PBMapType {
+  PBDataType key_type = 1;
+  PBDataType value_type = 2;
+}
+
+message PBStructField {
+  string field_name = 1;
+  PBDataType data_type = 2;
+  optional string comment = 3;
+  map<string, string> metadata = 4;
+}
+
+message PBStructType {
+  repeated PBStructField fields = 1;
+}
+
+message PBType {
+  oneof type_oneof {
+    PBDataType primitive = 1;
+    PBArrayType array = 2;
+    PBMapType map = 3;
+    PBStructType struct = 4;
+  }
+}
+
+message PBSchema {
+  PBStructType struct_type = 1;
+  map<string, string> properties = 2;
+  int64 version = 3;
+  int64 timestamp = 4;
+}
+
+message PBSnapshot {
+  int64 snapshot_id = 1;
+  string manifest_list = 2;
+  int64 timestamp = 3;
+  string summary = 4;
+  string operation = 5;
+  PBSchema schema = 6;
+}
+
+message TableMetadata {
+  string table_name = 1;
+  PBSchema schema = 2;
+  PBSnapshot current_snapshot = 3;
+  map<string, string> properties = 4;
+  int64 created_at = 5;
+  int64 updated_at = 6;
+}
+
+// 辅助消息类型（用于单字段请求）
+message PBInt64Value {
+  int64 value = 1;
+}
+
+message PBStringValue {
+  string value = 1;
+}
+
+message PBSnapshotRequest {
+  string table_name = 1;
+  int64 snapshot_id = 2;
+}
+
+message PBSnapshotList {
+  repeated PBSnapshot snapshots = 1;
+}

@@ -1,24 +1,96 @@
-# Compiled class file
+# =========================
+# Build Artifacts (Maven)
+# =========================
+target/
+!target/classes/
+!target/test-classes/
+
+# Compiled Java class files
 *.class
 
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
+# JAR/WAR/EAR packages
 *.jar
 *.war
-*.nar
 *.ear
-*.zip
-*.tar.gz
-*.rar
+*.nar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+# =========================
+# IDE / Editor
+# =========================
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+out/
+
+# Eclipse
+.settings/
+.project
+.classpath
+.metadata/
+
+# VS Code
+.vscode/
+
+# NetBeans
+nbproject/
+build/
+
+# =========================
+# OS Generated Files
+# =========================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+__MACOSX
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.*.swp
+.*.swo
+
+# =========================
+# Logs and Databases
+# =========================
+*.log
+*.sql
+*.sqlite
+*.db
+
+# =========================
+# Environment & Secrets
+# =========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# =========================
+# Miscellaneous
+# =========================
+*.tmp
+*.bak
+*.orig
+*.rej
+*～
+
+# Maven wrapper
+.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties
+
+# Ignore all files in root that are not explicitly needed
+# (But we still want pom.xml, README, LICENSE, etc.)
