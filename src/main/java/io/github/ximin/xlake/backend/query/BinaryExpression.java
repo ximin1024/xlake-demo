@@ -17,9 +17,9 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.expression;
+package io.github.ximin.xlake.backend.query;
 
-public record ColumnRef(
-        String name
-) {
+public interface BinaryExpression extends Expression {
+    Expression getLeft();
+    Expression getRight();
 }

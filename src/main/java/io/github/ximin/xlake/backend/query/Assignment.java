@@ -17,9 +17,20 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.expression;
+package io.github.ximin.xlake.backend.query;
 
-import java.io.Serializable;
+import java.util.Set;
 
-public interface Expression extends Serializable {
+public interface Assignment extends Expression {
+
+    String getTargetColumn();
+
+
+    Expression getValueExpression();
+
+
+    Set<String> getReferencedColumns();
+
+     // check if self assignment eg：age = age + 1
+    boolean selfAssignment();
 }

@@ -17,7 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.expression;
+package io.github.ximin.xlake.backend.query;
 
-public class Not {
+public interface UnaryExpression {
 }
