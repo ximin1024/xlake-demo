@@ -170,7 +170,7 @@ public class Like implements Expression {
 
     private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
         if (expr instanceof ColumnRef) {
-            String columnName = ((ColumnRef) expr).getColumnName();
+            String columnName = ((ColumnRef) expr).columnName();
             return row.get(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();

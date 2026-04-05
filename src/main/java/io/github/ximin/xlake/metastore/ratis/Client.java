@@ -1,0 +1,136 @@
+package io.github.ximin.xlake.metastore.ratis;
+
+import com.google.protobuf.ByteString;
+import io.github.ximin.xlake.meta.*;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.ratis.client.RaftClient;
+import org.apache.ratis.conf.RaftProperties;
+import org.apache.ratis.protocol.*;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Slf4j
+public class Client implements AutoCloseable {
+
+    private final RaftClient client;
+
+    public Client(List<String> peerHostPorts) {
+        List<RaftPeer> peers = peerHostPorts.stream()
+                .map(addr -> {
+                    String[] parts = addr.split(":");
+                    return RaftPeer.newBuilder()
+                            .setId(RaftPeerId.valueOf("peer-" + parts[0].replace(".", "-")))
+                            .setAddress(InetSocketAddress.createUnresolved(parts[0], Integer.parseInt(parts[1])))
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        RaftGroupId groupId = RaftGroupId.valueOf(
+                org.apache.ratis.thirdparty.com.google.protobuf.ByteString.copyFrom(
+                        "nebulake-meta-group".getBytes(StandardCharsets.UTF_8)));
+        RaftGroup group = RaftGroup.valueOf(groupId, peers);
+
+        this.client = RaftClient.newBuilder()
+                .setProperties(new RaftProperties())
+                .setRaftGroup(group)
+                .build();
+    }
+
+    public static Client createDefault() {
+        return create(List.of("localhost:9876"));
+    }
+
+    public static Client create(List<String> peers) {
+        return new Client(peers);
+    }
+
+    public void write(byte[] key, byte[] value) throws IOException {
+        var envelope = RaftOpEnvelope.newBuilder()
+                .setOpType("PUT")
+                .setPayload(PutRequest.newBuilder()
+                        .setKey(ByteString.copyFrom(key))
+                        .setValue(ByteString.copyFrom(value))
+                        .build()
+                        .toByteString())
+                .build();
+
+        Message message = Message.valueOf(String.valueOf(envelope.toByteString()));
+        RaftClientReply reply = client.io().send(message);
+        if (!reply.isSuccess()) {
+            throw new IOException("Ratis write failed: " + reply.getException());
+        }
+    }
+
+    public Optional<byte[]> read(byte[] key) throws IOException {
+        var envelope = RaftOpEnvelope.newBuilder()
+                .setOpType("GET")
+                .setPayload(GetRequest.newBuilder()
+                        .setKey(ByteString.copyFrom(key))
+                        .build()
+                        .toByteString())
+                .build();
+
+        Message message = Message.valueOf(String.valueOf(envelope.toByteString()));
+        RaftClientReply reply = client.io().sendReadOnly(message);
+        if (!reply.isSuccess()) {
+            return Optional.empty();
+        }
+
+        var response = GetResponse.parseFrom(
+                reply.getMessage().getContent().toByteArray());
+        if (response.getValue().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(response.getValue().toByteArray());
+    }
+
+    public void delete(byte[] key) throws IOException {
+        var envelope = RaftOpEnvelope.newBuilder()
+                .setOpType("DELETE")
+                .setPayload(DeleteRequest.newBuilder()
+                        .setKey(ByteString.copyFrom(key))
+                        .build()
+                        .toByteString())
+                .build();
+
+        Message message = Message.valueOf(String.valueOf(envelope.toByteString()));
+        RaftClientReply reply = client.io().send(message);
+        if (!reply.isSuccess()) {
+            throw new IOException("Ratis delete failed: " + reply.getException());
+        }
+    }
+
+    public List<byte[]> scanByPrefix(byte[] prefix) throws IOException {
+        var envelope = RaftOpEnvelope.newBuilder()
+                .setOpType("SCAN_PREFIX")
+                .setPayload(ScanPrefixRequest.newBuilder()
+                        .setPrefix(ByteString.copyFrom(prefix))
+                        .build()
+                        .toByteString())
+                .build();
+
+        Message message = Message.valueOf(String.valueOf(envelope.toByteString()));
+        RaftClientReply reply = client.io().sendReadOnly(message);
+        if (!reply.isSuccess()) {
+            return List.of();
+        }
+
+        var response = ScanPrefixResponse.parseFrom(
+                reply.getMessage().getContent().toByteArray());
+        return response.getValuesList().stream()
+                .map(ByteString::toByteArray)
+                .toList();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (client != null) {
+            client.close();
+        }
+    }
+}

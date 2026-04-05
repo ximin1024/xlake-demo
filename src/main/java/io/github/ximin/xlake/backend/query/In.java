@@ -25,11 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class In implements Expression {
-
-    private final Expression column;
-    private final Set<Comparable> values;
-
+public record In(Expression column, Set<Comparable> values) implements Expression {
     public In(Expression column, Set<Comparable> values) {
         this.column = column;
         this.values = new HashSet<>(values);
@@ -41,7 +37,7 @@ public class In implements Expression {
             return false;
         }
 
-        String columnName = ((ColumnRef) column).getColumnName();
+        String columnName = ((ColumnRef) column).columnName();
         if (!row.containsKey(columnName)) {
             return false;
         }
@@ -73,7 +69,8 @@ public class In implements Expression {
         return this;
     }
 
-    public Set<Comparable> getValues() {
+    @Override
+    public Set<Comparable> values() {
         return Collections.unmodifiableSet(values);
     }
 

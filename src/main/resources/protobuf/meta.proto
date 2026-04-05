@@ -1,9 +1,13 @@
 syntax = "proto3";
 
-package io.github.ximin.xlake;
+package nebulake.meta;
 
-option java_package = "io.github.ximin.xlake.table";
+option java_package = "io.github.ximin.xlake.meta";
 option java_multiple_files = true;
+
+import "google/protobuf/timestamp.proto";
+
+// ==================== 类型系统 ====================
 
 enum PrimitiveType {
   PRIMITIVE_TYPE_UNSPECIFIED = 0;
@@ -21,82 +25,254 @@ enum PrimitiveType {
   TIMESTAMP = 12;
 }
 
-message PBDataType {
+message DataType {
   PrimitiveType primitive_type = 1;
   optional int32 precision = 2;
   optional int32 scale = 3;
   bool is_nullable = 4;
-  optional string description = 5;
 }
 
-message PBArrayType {
-  PBDataType element_type = 1;
-}
-
-message PBMapType {
-  PBDataType key_type = 1;
-  PBDataType value_type = 2;
-}
-
-message PBStructField {
+message StructField {
   string field_name = 1;
-  PBDataType data_type = 2;
+  DataType data_type = 2;
   optional string comment = 3;
-  map<string, string> metadata = 4;
 }
 
-message PBStructType {
-  repeated PBStructField fields = 1;
+message StructType {
+  repeated StructField fields = 1;
 }
 
-message PBType {
-  oneof type_oneof {
-    PBDataType primitive = 1;
-    PBArrayType array = 2;
-    PBMapType map = 3;
-    PBStructType struct = 4;
-  }
+// ==================== Schema & 约束 ====================
+
+message PrimaryKeyConstraint {
+  repeated string field_names = 1;
 }
 
-message PBSchema {
-  PBStructType struct_type = 1;
+message Schema {
+  StructType struct_type = 1;
   map<string, string> properties = 2;
   int64 version = 3;
-  int64 timestamp = 4;
+  repeated PrimaryKeyConstraint constraints = 4;
 }
 
-message PBSnapshot {
+// ==================== 快照 ====================
+
+message Snapshot {
   int64 snapshot_id = 1;
   string manifest_list = 2;
   int64 timestamp = 3;
   string summary = 4;
   string operation = 5;
-  PBSchema schema = 6;
+  Schema schema = 6;
+}
+
+// ==================== 表元数据 ====================
+
+enum TableType {
+  TABLE_TYPE_UNSPECIFIED = 0;
+  PRIMARY_KEY = 1;
+  APPEND_ONLY = 2;
 }
 
 message TableMetadata {
   string table_name = 1;
-  PBSchema schema = 2;
-  PBSnapshot current_snapshot = 3;
+  TableType table_type = 2;
+  Schema schema = 3;
+  Snapshot current_snapshot = 4;
+  map<string, string> properties = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// ==================== Expression（核心能力）====================
+
+enum ExprType {
+  EXPR_TYPE_UNSPECIFIED = 0;
+  LITERAL = 1;
+  COLUMN_REF = 2;
+  EQUAL = 3;
+  NOT_EQUAL = 4;
+  GREATER_THAN = 5;
+  GREATER_THAN_OR_EQUAL = 6;
+  LESS_THAN = 7;
+  LESS_THAN_OR_EQUAL = 8;
+  IN = 9;
+  NOT_IN = 10;
+  AND = 11;
+  OR = 12;
+  NOT = 13;
+  BETWEEN = 14;
+  LIKE = 15;
+  STARTS_WITH = 16;
+  ENDS_WITH = 17;
+  CONTAINS = 18;
+  IS_NULL = 19;
+  IS_NOT_NULL = 20;
+  DIRECT = 21;
+  ARITHMETIC_ADD = 22;
+  ARITHMETIC_SUBTRACT = 23;
+  ARITHMETIC_MULTIPLY = 24;
+  ARITHMETIC_DIVIDE = 25;
+}
+
+message LiteralValue {
+  oneof value {
+    bool bool_val = 1;
+    int32 int32_val = 2;
+    int64 int64_val = 3;
+    float float_val = 4;
+    double double_val = 5;
+    string string_val = 6;
+    bytes bytes_val = 7;
+  }
+}
+
+message Expression {
+  ExprType expr_type = 1;
+  repeated Expression children = 2;
+  optional LiteralValue literal = 3;
+  optional string column_ref = 4;
+  map<string, string> metadata = 5;
+}
+
+// ==================== Lazy Update（范围更新）====================
+
+message UpdateEntry {
+  string entry_id = 1;
+  string table_name = 2;
+  Expression predicate = 3;
+  map<string, string> updates = 4; // column -> serialized Comparable value
+  int64 timestamp = 5;
+}
+
+// ==================== 文件元数据（LSM / DataBlock）====================
+
+enum FileFormat {
+  FILE_FORMAT_UNSPECIFIED = 0;
+  PARQUET = 1;
+  ORC = 2;
+}
+
+message FileMetadata {
+  string file_path = 1;
+  int32 level = 2;
+  bytes min_key = 3;
+  bytes max_key = 4;
+  int64 min_commit_ts = 5;
+  int64 max_commit_ts = 6;
+  int64 file_size_bytes = 7;
+  FileFormat format = 8;
+  string table_name = 9;
+}
+
+// ==================== 操作与事务 ====================
+
+message TableOperation {
+  string operation_type = 1;
+  string table_name = 2;
+  optional Schema schema = 3;
   map<string, string> properties = 4;
-  int64 created_at = 5;
-  int64 updated_at = 6;
+  int64 timestamp = 5;
 }
 
-// 辅助消息类型（用于单字段请求）
-message PBInt64Value {
-  int64 value = 1;
+message CommitRequest {
+  int64 commit_id = 1;
+  repeated TableOperation operations = 2;
 }
 
-message PBStringValue {
-  string value = 1;
+message OperationResult {
+  bool success = 1;
+  optional string message = 2;
+  optional int64 commit_id = 3;
 }
 
-message PBSnapshotRequest {
+// ==================== 请求/响应 ====================
+
+message CreateTableRequest {
+  TableMetadata metadata = 1;
+}
+
+message DropTableRequest {
+  string table_name = 1;
+}
+
+message GetTableRequest {
+  string table_name = 1;
+}
+
+message GetSnapshotRequest {
   string table_name = 1;
   int64 snapshot_id = 2;
 }
 
-message PBSnapshotList {
-  repeated PBSnapshot snapshots = 1;
+message GetSnapshotsRequest {
+  string table_name = 1;
+}
+
+message AlterTableRequest {
+  string table_name = 1;
+  Schema new_schema = 2;
+}
+
+message ListFilesRequest {
+  string table_name = 1;
+  optional int32 level = 2;
+}
+
+message ListFilesResponse {
+  repeated FileMetadata files = 1;
+}
+
+message PutUpdateEntryRequest {
+  UpdateEntry entry = 1;
+}
+
+message GetUpdateEntriesRequest {
+  string table_name = 1;
+}
+
+message GetUpdateEntriesResponse {
+  repeated UpdateEntry entries = 1;
+}
+
+message DeleteUpdateEntryRequest {
+  string entry_id = 1;
+}
+
+// ==================== gRPC 服务定义 ====================
+
+service MetastoreService {
+
+  // --- 表管理 ---
+  rpc CreateTable(CreateTableRequest) returns (OperationResult);
+  rpc DropTable(DropTableRequest) returns (OperationResult);
+  rpc GetTable(GetTableRequest) returns (TableMetadata);
+  rpc AlterTable(AlterTableRequest) returns (OperationResult);
+
+  // --- 快照管理 ---
+  rpc GetSnapshot(GetSnapshotRequest) returns (Snapshot);
+  rpc GetSnapshots(GetSnapshotsRequest) returns (SnapshotList);
+
+  // --- 事务 ---
+  rpc BeginCommit(CommitRequest) returns (OperationResult);
+  rpc Commit(CommitId) returns (OperationResult);
+  rpc AbortCommit(CommitId) returns (OperationResult);
+
+  // --- 文件元数据（Compaction / Scan 使用）---
+  rpc PutFile(FileMetadata) returns (OperationResult);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc RemoveFile(FileMetadata) returns (OperationResult);
+
+  // --- Lazy Update 管理（范围更新核心）---
+  rpc PutUpdateEntry(PutUpdateEntryRequest) returns (OperationResult);
+  rpc GetUpdateEntries(GetUpdateEntriesRequest) returns (GetUpdateEntriesResponse);
+  rpc DeleteUpdateEntry(DeleteUpdateEntryRequest) returns (OperationResult);
+}
+
+message SnapshotList {
+  repeated Snapshot snapshots = 1;
+}
+
+message CommitId {
+  int64 value = 1;
 }

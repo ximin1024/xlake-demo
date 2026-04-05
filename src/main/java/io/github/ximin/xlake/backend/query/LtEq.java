@@ -24,7 +24,7 @@ import java.util.Objects;
 
 public class LtEq extends BinaryComparison{
 
-    protected LtEq(Expression left, Expression right) {
+    public LtEq(Expression left, Expression right) {
         super(left, right);
     }
 
@@ -32,7 +32,7 @@ public class LtEq extends BinaryComparison{
     public boolean evaluate(Map<String, Comparable> row) {
         // 处理 null 值
         if (left instanceof ColumnRef && right instanceof Literal) {
-            String column = ((ColumnRef) left).getColumnName();
+            String column = ((ColumnRef) left).columnName();
             Comparable value = ((Literal) right).getValue();
 
             if (!row.containsKey(column)) {

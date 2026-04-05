@@ -22,10 +22,7 @@ package io.github.ximin.xlake.backend.query;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class NotIn implements Expression {
-
-    private final Expression column;
-    private final Set<Comparable> values;
+public record NotIn(Expression column, Set<Comparable> values) implements Expression {
 
     public NotIn(Expression column, Set<Comparable> values) {
         this.column = column;
@@ -46,7 +43,7 @@ public class NotIn implements Expression {
 
     private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
         if (expr instanceof ColumnRef) {
-            String columnName = ((ColumnRef) expr).getColumnName();
+            String columnName = ((ColumnRef) expr).columnName();
             return row.get(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();
@@ -95,11 +92,8 @@ public class NotIn implements Expression {
         return false;
     }
 
-    public Expression getColumn() {
-        return column;
-    }
-
-    public Set<Comparable> getValues() {
+    @Override
+    public Set<Comparable> values() {
         return Collections.unmodifiableSet(values);
     }
 
@@ -116,17 +110,4 @@ public class NotIn implements Expression {
         return column.toString() + " NOT IN (" + valuesStr + ")";
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        NotIn that = (NotIn) obj;
-        return Objects.equals(column, that.column) &&
-                Objects.equals(values, that.values);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(column, values, getType());
-    }
 }

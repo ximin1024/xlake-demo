@@ -19,20 +19,11 @@
  */
 package io.github.ximin.xlake.backend.query;
 
-import lombok.Getter;
-
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-@Getter
-public class ColumnRef implements Expression {
-
-    private final String columnName;
-
-    public ColumnRef(String columnName) {
-        this.columnName = columnName;
-    }
+public record ColumnRef(String columnName) implements Expression {
 
     @Override
     public boolean evaluate(Map<String, Comparable> row) {

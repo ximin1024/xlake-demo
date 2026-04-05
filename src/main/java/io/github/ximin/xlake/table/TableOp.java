@@ -19,7 +19,7 @@
  */
 package io.github.ximin.xlake.table;
 
-import io.github.ximin.xlake.metastore.MetastoreClient;
+import io.github.ximin.xlake.metastore.server.MetastoreClient;
 
 import java.util.function.Supplier;
 

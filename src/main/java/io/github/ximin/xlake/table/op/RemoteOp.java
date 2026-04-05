@@ -19,15 +19,15 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.metastore.MetastoreClient;
+import io.github.ximin.xlake.metastore.server.MetastoreClient;
 
 import java.util.function.Supplier;
 
-public abstract class AbstractOp implements Op {
+public abstract class RemoteOp implements Op {
     protected final String tableName;
     protected final Supplier<MetastoreClient> clientSupplier;
 
-    protected AbstractOp(String tableName, Supplier<MetastoreClient> clientSupplier) {
+    protected RemoteOp(String tableName, Supplier<MetastoreClient> clientSupplier) {
         this.tableName = tableName;
         this.clientSupplier = clientSupplier;
     }

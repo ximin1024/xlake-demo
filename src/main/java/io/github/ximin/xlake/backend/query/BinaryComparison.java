@@ -77,7 +77,7 @@ public abstract class BinaryComparison implements BinaryExpression {
 
     protected Comparable evaluateSide(Expression expr, Map<String, Comparable> row) {
         if (expr instanceof ColumnRef) {
-            String columnName = ((ColumnRef) expr).getColumnName();
+            String columnName = ((ColumnRef) expr).columnName();
             return row.get(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();

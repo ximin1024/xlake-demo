@@ -45,11 +45,11 @@ public interface Expression extends Serializable {
     Expression copy();
 
     enum ExpressionType implements Serializable {
-        // basic
+        // 基础类型
         LITERAL,
         COLUMN_REF,
 
-        // comparison
+        // 比较操作符
         EQUAL,
         NOT_EQUAL,
         GREATER_THAN,
@@ -57,38 +57,51 @@ public interface Expression extends Serializable {
         LESS_THAN,
         LESS_THAN_OR_EQUAL,
 
-        // set
+        // 集合操作
         IN,
         NOT_IN,
 
-        // logical
+        // 逻辑操作
         AND,
         OR,
         NOT,
 
-        // range
+        // 范围操作
         BETWEEN,
 
-        // string
+        // 字符串操作
         LIKE,
         STARTS_WITH,
         ENDS_WITH,
         CONTAINS,
 
-        // null
+        // 空值操作
         IS_NULL,
         IS_NOT_NULL,
 
-        // assignment
-        // column = value
+        // 赋值
+        // 直接赋值：column = value
         DIRECT,
-        // column = column + value
-        ARITHMETIC,
+        // 算术赋值：column = column + value
+        ARITHMETIC_ADD,
+        ARITHMETIC_SUBTRACT,
+        ARITHMETIC_MULTIPLY,
+        ARITHMETIC_DIVIDE,
         // CASE WHEN 赋值
+        /*
+        SELECT
+        CASE
+            WHEN column2 > 100 THEN 20
+            ELSE column1
+        END AS column1,
+        column2
+        FROM table
+        WHERE column2 > 50
+         */
         CASE,
-        // column = function(...)
+        // 函数赋值：column = function(...)
         FUNCTION,
-        // if
+        // 条件赋值
         CONDITIONAL
     }
 }
