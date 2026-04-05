@@ -22,12 +22,10 @@ package io.github.ximin.xlake.backend.query;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class Or implements LogicalExpression {
-
-    private final List<Expression> children;
+public record Or(List<Expression> children) implements LogicalExpression {
 
     public Or(Expression... children) {
-        this.children = Arrays.asList(children);
+        this(Arrays.asList(children));
     }
 
     public Or(List<Expression> children) {

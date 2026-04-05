@@ -24,7 +24,7 @@ import java.util.Objects;
 
 public class GtEq extends BinaryComparison {
 
-    protected GtEq(Expression left, Expression right) {
+    public GtEq(Expression left, Expression right) {
         super(left, right);
     }
 
@@ -32,7 +32,7 @@ public class GtEq extends BinaryComparison {
     public boolean evaluate(Map<String, Comparable> row) {
         // 处理 null 值
         if (left instanceof ColumnRef && right instanceof Literal) {
-            String column = ((ColumnRef) left).getColumnName();
+            String column = ((ColumnRef) left).columnName();
             Comparable value = ((Literal) right).getValue();
 
             if (!row.containsKey(column)) {

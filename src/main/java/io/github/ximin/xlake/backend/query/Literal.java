@@ -19,10 +19,13 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import lombok.Getter;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
+@Getter
 public class Literal implements Expression {
 
     private final Comparable value;
@@ -52,14 +55,6 @@ public class Literal implements Expression {
     @Override
     public Expression simplify() {
         return this;
-    }
-
-    public Comparable getValue() {
-        return value;
-    }
-
-    public Class<?> getValueType() {
-        return valueType;
     }
 
     @Override

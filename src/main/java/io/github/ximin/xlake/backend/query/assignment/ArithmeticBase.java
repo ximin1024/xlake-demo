@@ -1,24 +1,8 @@
-/*-
- * #%L
- * xlake-demo
- * %%
- * Copyright (C) 2026 ximin1024
- * %%
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- * #L%
- */
-package io.github.ximin.xlake.backend.query;
+package io.github.ximin.xlake.backend.query.assignment;
 
+import io.github.ximin.xlake.backend.query.ColumnRef;
+import io.github.ximin.xlake.backend.query.Expression;
+import io.github.ximin.xlake.backend.query.Literal;
 import lombok.Getter;
 
 import java.io.Serializable;
@@ -29,7 +13,9 @@ import java.util.Set;
 
 public abstract class ArithmeticBase implements Assignment {
     protected final String targetColumn;
+    @Getter
     protected final Expression leftOperand;
+    @Getter
     protected final Expression rightOperand;
     protected final Operator operator;
 
@@ -50,12 +36,12 @@ public abstract class ArithmeticBase implements Assignment {
     }
 
     @Override
-    public String getTargetColumn() {
+    public String targetColumn() {
         return targetColumn;
     }
 
     @Override
-    public Expression getValueExpression() {
+    public Expression valueExpression() {
         return createArithmeticExpression(leftOperand, rightOperand, operator);
     }
 
@@ -64,7 +50,6 @@ public abstract class ArithmeticBase implements Assignment {
 
     private Comparable performOperation(Comparable left, Comparable right, Operator op) {
         // todo 简化的算术运算实现,实际应用中需要更完善的类型检查和转换
-
         try {
             if (left instanceof Number && right instanceof Number) {
                 double leftNum = ((Number) left).doubleValue();
@@ -86,7 +71,7 @@ public abstract class ArithmeticBase implements Assignment {
                 }
             }
         } catch (Exception e) {
-            // 处理运算异常
+            // todo 处理运算异常
         }
 
         return null;
@@ -95,16 +80,12 @@ public abstract class ArithmeticBase implements Assignment {
 
     @Override
     public boolean selfAssignment() {
+        // 检查是否是 self assignment，如 age = age + 1
         if (leftOperand instanceof ColumnRef) {
-            String leftColumn = ((ColumnRef) leftOperand).getColumnName();
+            String leftColumn = ((ColumnRef) leftOperand).columnName();
             return targetColumn.equals(leftColumn);
         }
         return false;
-    }
-
-    @Override
-    public ExpressionType getType() {
-        return ExpressionType.ARITHMETIC;
     }
 
     @Override
@@ -131,8 +112,7 @@ public abstract class ArithmeticBase implements Assignment {
             if (leftVal != null && rightVal != null) {
                 Comparable result = performOperation(leftVal, rightVal, operator);
                 if (result != null) {
-                    return new Direct(targetColumn, new Literal(result)
-                    );
+                    return new Direct(targetColumn, new Literal(result));
                 }
             }
         }
@@ -140,8 +120,7 @@ public abstract class ArithmeticBase implements Assignment {
         return createSimplified(simplifiedLeft, simplifiedRight);
     }
 
-    protected abstract ArithmeticBase createSimplified(
-            Expression left, Expression right);
+    protected abstract ArithmeticBase createSimplified(Expression left, Expression right);
 
     @Override
     public Expression copy() {

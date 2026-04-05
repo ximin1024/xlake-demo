@@ -29,7 +29,7 @@ public class ExpressionUtils {
     public static boolean isPrimaryKeyEquals(Expression expression, Set<String> primaryKeys) {
         if (expression instanceof Eq eq) {
             if (eq.getLeft() instanceof ColumnRef && eq.getRight() instanceof Literal) {
-                String column = ((ColumnRef) eq.getLeft()).getColumnName();
+                String column = ((ColumnRef) eq.getLeft()).columnName();
                 return primaryKeys.contains(column);
             }
         }
@@ -95,7 +95,7 @@ public class ExpressionUtils {
     private static void extractPrimaryKeyValue(Eq eq, Set<String> primaryKeys, Map<String, Comparable> result) {
         if (eq.getLeft() instanceof ColumnRef &&
                 eq.getRight() instanceof Literal) {
-            String column = ((ColumnRef) eq.getLeft()).getColumnName();
+            String column = ((ColumnRef) eq.getLeft()).columnName();
             Comparable value = ((Literal) eq.getRight()).getValue();
 
             if (primaryKeys.contains(column)) {

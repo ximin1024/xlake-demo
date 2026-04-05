@@ -30,7 +30,7 @@ public class Eq extends BinaryComparison {
     @Override
     public boolean evaluate(Map<String, Comparable> row) {
         if (left instanceof ColumnRef && right instanceof Literal) {
-            String column = ((ColumnRef) left).getColumnName();
+            String column = ((ColumnRef) left).columnName();
             Comparable value = ((Literal) right).getValue();
 
             if (!row.containsKey(column)) {

@@ -21,23 +21,10 @@ package io.github.ximin.xlake.backend.query;
 
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
-public class Between implements Expression {
-
-    private final Expression column;
-    private final Expression lowerBound;
-    private final Expression upperBound;
-    private final boolean inclusive;
-
-    public Between(Expression column, Expression lowerBound,
-                   Expression upperBound, boolean inclusive) {
-        this.column = column;
-        this.lowerBound = lowerBound;
-        this.upperBound = upperBound;
-        this.inclusive = inclusive;
-    }
+public record Between(Expression column, Expression lowerBound, Expression upperBound,
+                      boolean inclusive) implements Expression {
 
     public Between(Expression column, Expression lowerBound, Expression upperBound) {
         this(column, lowerBound, upperBound, true);
@@ -66,7 +53,7 @@ public class Between implements Expression {
 
     private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
         if (expr instanceof ColumnRef) {
-            String columnName = ((ColumnRef) expr).getColumnName();
+            String columnName = ((ColumnRef) expr).columnName();
             return row.get(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();
@@ -127,22 +114,6 @@ public class Between implements Expression {
         return false;
     }
 
-    public Expression getColumn() {
-        return column;
-    }
-
-    public Expression getLowerBound() {
-        return lowerBound;
-    }
-
-    public Expression getUpperBound() {
-        return upperBound;
-    }
-
-    public boolean isInclusive() {
-        return inclusive;
-    }
-
     @Override
     public Expression copy() {
         return new Between(
@@ -160,19 +131,4 @@ public class Between implements Expression {
                 lowerBound.toString() + " AND " + upperBound.toString();
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        Between that = (Between) obj;
-        return inclusive == that.inclusive &&
-                Objects.equals(column, that.column) &&
-                Objects.equals(lowerBound, that.lowerBound) &&
-                Objects.equals(upperBound, that.upperBound);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(column, lowerBound, upperBound, inclusive, getType());
-    }
 }

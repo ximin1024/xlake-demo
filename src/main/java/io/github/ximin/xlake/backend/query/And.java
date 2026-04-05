@@ -22,12 +22,10 @@ package io.github.ximin.xlake.backend.query;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class And implements LogicalExpression {
-
-    private final List<Expression> children;
+public record And(List<Expression> children) implements LogicalExpression {
 
     public And(Expression... children) {
-        this.children = Arrays.asList(children);
+        this(Arrays.asList(children));
     }
 
     public And(List<Expression> children) {

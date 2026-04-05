@@ -17,22 +17,17 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.query;
+package io.github.ximin.xlake.backend.query.assignment;
+
+import io.github.ximin.xlake.backend.query.ColumnRef;
+import io.github.ximin.xlake.backend.query.Expression;
+import io.github.ximin.xlake.backend.query.Literal;
 
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
-public class Direct implements Assignment {
-
-    private final String targetColumn;
-    private final Expression valueExpression;
-
-    public Direct(String targetColumn, Expression valueExpression) {
-        this.targetColumn = targetColumn;
-        this.valueExpression = valueExpression;
-    }
+public record Direct(String targetColumn, Expression valueExpression) implements Assignment {
 
     public Direct(String targetColumn, Comparable value) {
         this(targetColumn, new Literal(value));
@@ -45,19 +40,9 @@ public class Direct implements Assignment {
     }
 
     @Override
-    public String getTargetColumn() {
-        return targetColumn;
-    }
-
-    @Override
-    public Expression getValueExpression() {
-        return valueExpression;
-    }
-
-    @Override
     public boolean selfAssignment() {
         if (valueExpression instanceof ColumnRef) {
-            String sourceColumn = ((ColumnRef) valueExpression).getColumnName();
+            String sourceColumn = ((ColumnRef) valueExpression).columnName();
             return targetColumn.equals(sourceColumn);
         }
         return false;
@@ -65,7 +50,7 @@ public class Direct implements Assignment {
 
     @Override
     public ExpressionType getType() {
-        return ExpressionType.ARITHMETIC;
+        return ExpressionType.DIRECT;
     }
 
     @Override
@@ -95,16 +80,4 @@ public class Direct implements Assignment {
         return targetColumn + " = " + valueExpression;
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        Direct that = (Direct) obj;
-        return Objects.equals(targetColumn, that.targetColumn) && Objects.equals(valueExpression, that.valueExpression);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(targetColumn, valueExpression);
-    }
 }
