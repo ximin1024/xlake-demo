@@ -19,5 +19,18 @@
  */
 package io.github.ximin.xlake.table;
 
-public interface KVTable extends XlakeTable {
+import io.github.ximin.xlake.table.op.Find;
+import java.util.Map;
+
+public interface KVTable extends BucketTable {
+
+    PrimaryKey primaryKey();
+
+    default boolean hasPrimaryKey() {
+        return primaryKey() != null && !primaryKey().isEmpty();
+    }
+
+    default Find.FindResult find(Map<String, Comparable> pkValues) {
+        throw new UnsupportedOperationException("find() not implemented yet");
+    }
 }

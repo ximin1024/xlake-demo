@@ -19,5 +19,27 @@
  */
 package io.github.ximin.xlake.table.op;
 
-public interface Scan {
+import io.github.ximin.xlake.backend.query.Expression;
+import io.github.ximin.xlake.storage.DataBlock;
+
+import java.util.List;
+
+public interface Scan extends Read {
+
+    List<DataBlock> plan();
+
+    @Override
+    default List<DataBlock> getDataBlocks() {
+        return plan();
+    }
+
+    @Override
+    default Expression getPushedPredicate() {
+        return null;
+    }
+
+    @Override
+    default boolean isPrimaryKeyLookup() {
+        return false;
+    }
 }

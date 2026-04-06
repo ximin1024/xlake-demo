@@ -19,5 +19,67 @@
  */
 package io.github.ximin.xlake.table.op;
 
-public interface Refresh extends Op {
+import io.github.ximin.xlake.table.GrpcTableMetaClient;
+import io.github.ximin.xlake.table.TableMetaClient;
+import io.github.ximin.xlake.table.XlakeTable;
+
+import java.util.function.Supplier;
+
+public class Refresh extends RpcOp {
+    private final static String TYPE = "REFRESH";
+
+    private Refresh(XlakeTable table, Supplier<TableMetaClient> clientSupplier) {
+        super(table, clientSupplier);
+    }
+
+    @Override
+    public OpResult exec() {
+        try {
+            long snapshotIdBefore = table.dynamicInfo().currentSnapshotId();
+            
+            getClient().refreshTable(table.name());
+            
+            table.dynamicInfo().refresh();
+            
+            long snapshotIdAfter = table.dynamicInfo().currentSnapshotId();
+            
+            return DdlResult.RefreshResult.ok(snapshotIdBefore, snapshotIdAfter);
+        } catch (Exception e) {
+            return RpcOp.Result.error("Refresh failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String type() {
+        return TYPE;
+    }
+
+    public static RefreshBuilder builder() {
+        return new RefreshBuilder();
+    }
+
+    public static class RefreshBuilder {
+        private XlakeTable table;
+        private Supplier<TableMetaClient> clientSupplier;
+
+        public RefreshBuilder tableName(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
+
+        public RefreshBuilder clientSupplier(Supplier<TableMetaClient> clientSupplier) {
+            this.clientSupplier = clientSupplier;
+            return this;
+        }
+
+        public Refresh build() {
+            if (table == null) {
+                throw new IllegalStateException("tableName must be set");
+            }
+            if (clientSupplier == null) {
+                clientSupplier = GrpcTableMetaClient::new;
+            }
+            return new Refresh(table, clientSupplier);
+        }
+    }
 }

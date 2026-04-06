@@ -26,7 +26,8 @@ import java.util.Set;
 public record Between(Expression column, Expression lowerBound, Expression upperBound,
                       boolean inclusive) implements Expression {
 
-    public Between(Expression column, Expression lowerBound, Expression upperBound) {
+    public Between(Expression column, Expression lowerBound,
+                   Expression upperBound) {
         this(column, lowerBound, upperBound, true);
     }
 
@@ -82,7 +83,8 @@ public record Between(Expression column, Expression lowerBound, Expression upper
         Expression simplifiedUpper = upperBound.simplify();
 
         // 如果上下界都是字面量，可以优化
-        if (simplifiedLower instanceof Literal && simplifiedUpper instanceof Literal) {
+        if (simplifiedLower instanceof Literal &&
+                simplifiedUpper instanceof Literal) {
 
             Comparable lower = ((Literal) simplifiedLower).getValue();
             Comparable upper = ((Literal) simplifiedUpper).getValue();
@@ -93,7 +95,8 @@ public record Between(Expression column, Expression lowerBound, Expression upper
             }
         }
 
-        return new Between(simplifiedColumn, simplifiedLower, simplifiedUpper, inclusive);
+        return new Between(simplifiedColumn, simplifiedLower,
+                simplifiedUpper, inclusive);
     }
 
     @Override
@@ -132,3 +135,4 @@ public record Between(Expression column, Expression lowerBound, Expression upper
     }
 
 }
+

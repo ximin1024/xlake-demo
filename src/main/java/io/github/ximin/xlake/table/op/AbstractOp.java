@@ -17,15 +17,14 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.common.utls;
+package io.github.ximin.xlake.table.op;
 
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import io.github.ximin.xlake.table.XlakeTable;
 
-public class Strs {
-    public static String leftPad(String input, int fixedLength) {
-        return IntStream.range(0, fixedLength - input.length())
-                .mapToObj(i -> "0")
-                .collect(Collectors.joining()) + input;
+public abstract class AbstractOp implements Op {
+    protected final XlakeTable table;
+
+    protected AbstractOp(XlakeTable table) {
+        this.table = table;
     }
 }

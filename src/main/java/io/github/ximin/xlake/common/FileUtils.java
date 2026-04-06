@@ -17,7 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.common.utls;
+package io.github.ximin.xlake.common;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;

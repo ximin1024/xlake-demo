@@ -1,3 +1,22 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package io.github.ximin.xlake.metastore.server;
 
 import io.github.ximin.xlake.meta.*;
@@ -15,6 +34,9 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class GrpcServer {
 
+    private static final String DEFAULT_CATALOG = "default";
+    private static final String DEFAULT_DATABASE = "default";
+
     private final Server grpcServer;
     private final Metastore metastore;
 
@@ -27,14 +49,14 @@ public class GrpcServer {
     }
 
     public static GrpcServer createWithRatis(int port, List<String> ratisPeers) {
-        var ratisMeta = RatisMetastore.create(ratisPeers);
+        var ratisMeta = io.github.ximin.xlake.metastore.RatisMetastore.create(ratisPeers);
         return new GrpcServer(port, ratisMeta);
     }
 
     public void start() throws IOException {
         grpcServer.start();
         log.info("[gRPC] Metastore server started on port {}", grpcServer.getPort());
-        if (metastore instanceof RatisMetastore) {
+        if (metastore instanceof io.github.ximin.xlake.metastore.RatisMetastore) {
             log.info("[gRPC] Backend: Ratis + RocksDB (distributed)");
         }
     }
@@ -73,10 +95,10 @@ public class GrpcServer {
         }
 
         @Override
-        public void createTable(CreateTableRequest request, StreamObserver<OperationResult> responseObserver) {
+        public void createTable(PbCreateTableRequest request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 metastore.createTable(request.getMetadata());
-                respondOk(responseObserver, "Table created: " + request.getMetadata().getTableName());
+                respondOk(responseObserver, "Table created: " + request.getMetadata().getIdentifier().getTable());
             } catch (Exception e) {
                 log.error("[gRPC] createTable failed", e);
                 respondError(responseObserver, e);
@@ -84,9 +106,9 @@ public class GrpcServer {
         }
 
         @Override
-        public void dropTable(DropTableRequest request, StreamObserver<OperationResult> responseObserver) {
+        public void dropTable(PbDropTableRequest request, StreamObserver<PbOperationResult> responseObserver) {
             try {
-                metastore.dropTable(request.getTableName());
+                metastore.dropTable(DEFAULT_CATALOG, DEFAULT_DATABASE, request.getTableName());
                 respondOk(responseObserver, "Table dropped: " + request.getTableName());
             } catch (Exception e) {
                 respondError(responseObserver, e);
@@ -94,9 +116,9 @@ public class GrpcServer {
         }
 
         @Override
-        public void getTable(GetTableRequest request, StreamObserver<TableMetadata> responseObserver) {
+        public void getTable(PbGetTableRequest request, StreamObserver<PbTableMetadata> responseObserver) {
             try {
-                var meta = metastore.getTable(request.getTableName())
+                var meta = metastore.getTable(DEFAULT_CATALOG, DEFAULT_DATABASE, request.getTableName())
                         .orElseThrow(() -> new IllegalArgumentException(
                                 "Table not found: " + request.getTableName()));
                 responseObserver.onNext(meta);
@@ -107,9 +129,9 @@ public class GrpcServer {
         }
 
         @Override
-        public void alterTable(AlterTableRequest request, StreamObserver<OperationResult> responseObserver) {
+        public void alterTable(PbAlterTableRequest request, StreamObserver<PbOperationResult> responseObserver) {
             try {
-                metastore.alterTable(request.getTableName(), request.getNewSchema());
+                metastore.alterTable(DEFAULT_CATALOG, DEFAULT_DATABASE, request.getTableName(), request.getNewSchema());
                 respondOk(responseObserver);
             } catch (Exception e) {
                 respondError(responseObserver, e);
@@ -117,9 +139,9 @@ public class GrpcServer {
         }
 
         @Override
-        public void getSnapshot(GetSnapshotRequest request, StreamObserver<Snapshot> responseObserver) {
+        public void getSnapshot(PbGetSnapshotRequest request, StreamObserver<PbSnapshot> responseObserver) {
             try {
-                var snapshot = metastore.getSnapshot(request.getTableName(), request.getSnapshotId())
+                var snapshot = metastore.getSnapshot(DEFAULT_CATALOG, DEFAULT_DATABASE, request.getTableName(), request.getSnapshotId())
                         .orElseThrow(() -> new IllegalArgumentException("Snapshot not found"));
                 responseObserver.onNext(snapshot);
                 responseObserver.onCompleted();
@@ -129,10 +151,10 @@ public class GrpcServer {
         }
 
         @Override
-        public void getSnapshots(GetSnapshotsRequest request, StreamObserver<SnapshotList> responseObserver) {
+        public void getSnapshots(PbGetSnapshotsRequest request, StreamObserver<PbSnapshotList> responseObserver) {
             try {
-                var snapshots = metastore.getSnapshots(request.getTableName());
-                responseObserver.onNext(SnapshotList.newBuilder()
+                var snapshots = metastore.getSnapshots(DEFAULT_CATALOG, DEFAULT_DATABASE, request.getTableName());
+                responseObserver.onNext(PbSnapshotList.newBuilder()
                         .addAllSnapshots(snapshots)
                         .build());
                 responseObserver.onCompleted();
@@ -142,10 +164,10 @@ public class GrpcServer {
         }
 
         @Override
-        public void beginCommit(CommitRequest request, StreamObserver<OperationResult> responseObserver) {
+        public void beginCommit(PbCommitRequest request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 long commitId = metastore.beginCommit(request.getOperationsList());
-                responseObserver.onNext(OperationResult.newBuilder()
+                responseObserver.onNext(PbOperationResult.newBuilder()
                         .setSuccess(true)
                         .setCommitId(commitId)
                         .build());
@@ -156,10 +178,10 @@ public class GrpcServer {
         }
 
         @Override
-        public void commit(CommitId request, StreamObserver<OperationResult> responseObserver) {
+        public void commit(PbCommitId request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 boolean success = metastore.commit(request.getValue());
-                responseObserver.onNext(OperationResult.newBuilder()
+                responseObserver.onNext(PbOperationResult.newBuilder()
                         .setSuccess(success)
                         .setCommitId(success ? request.getValue() : 0)
                         .build());
@@ -170,7 +192,7 @@ public class GrpcServer {
         }
 
         @Override
-        public void abortCommit(CommitId request, StreamObserver<OperationResult> responseObserver) {
+        public void abortCommit(PbCommitId request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 boolean success = metastore.abortCommit(request.getValue());
                 respondOk(responseObserver, null, success ? request.getValue() : 0);
@@ -180,7 +202,7 @@ public class GrpcServer {
         }
 
         @Override
-        public void putFile(FileMetadata request, StreamObserver<OperationResult> responseObserver) {
+        public void putFile(PbFileMetadata request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 metastore.putFile(request);
                 respondOk(responseObserver);
@@ -190,12 +212,12 @@ public class GrpcServer {
         }
 
         @Override
-        public void listFiles(ListFilesRequest request, StreamObserver<ListFilesResponse> responseObserver) {
+        public void listFiles(PbListFilesRequest request, StreamObserver<PbListFilesResponse> responseObserver) {
             try {
-                List<FileMetadata> files = request.hasLevel()
+                List<PbFileMetadata> files = request.hasLevel()
                         ? metastore.listFiles(request.getTableName(), request.getLevel())
                         : metastore.listFiles(request.getTableName());
-                responseObserver.onNext(ListFilesResponse.newBuilder()
+                responseObserver.onNext(PbListFilesResponse.newBuilder()
                         .addAllFiles(files)
                         .build());
                 responseObserver.onCompleted();
@@ -205,7 +227,7 @@ public class GrpcServer {
         }
 
         @Override
-        public void removeFile(FileMetadata request, StreamObserver<OperationResult> responseObserver) {
+        public void removeFile(PbFileMetadata request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 metastore.removeFile(request.getTableName(), request.getFilePath());
                 respondOk(responseObserver);
@@ -215,7 +237,7 @@ public class GrpcServer {
         }
 
         @Override
-        public void putUpdateEntry(PutUpdateEntryRequest request, StreamObserver<OperationResult> responseObserver) {
+        public void putUpdateEntry(PbPutUpdateEntryRequest request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 metastore.putUpdateEntry(request.getEntry());
                 respondOk(responseObserver);
@@ -225,10 +247,10 @@ public class GrpcServer {
         }
 
         @Override
-        public void getUpdateEntries(GetUpdateEntriesRequest request, StreamObserver<GetUpdateEntriesResponse> responseObserver) {
+        public void getUpdateEntries(PbGetUpdateEntriesRequest request, StreamObserver<PbGetUpdateEntriesResponse> responseObserver) {
             try {
                 var entries = metastore.getUpdateEntries(request.getTableName());
-                responseObserver.onNext(GetUpdateEntriesResponse.newBuilder()
+                responseObserver.onNext(PbGetUpdateEntriesResponse.newBuilder()
                         .addAllEntries(entries)
                         .build());
                 responseObserver.onCompleted();
@@ -238,7 +260,7 @@ public class GrpcServer {
         }
 
         @Override
-        public void deleteUpdateEntry(DeleteUpdateEntryRequest request, StreamObserver<OperationResult> responseObserver) {
+        public void deleteUpdateEntry(PbDeleteUpdateEntryRequest request, StreamObserver<PbOperationResult> responseObserver) {
             try {
                 metastore.deleteUpdateEntry(request.getEntryId());
                 respondOk(responseObserver);
@@ -247,24 +269,24 @@ public class GrpcServer {
             }
         }
 
-        private void respondOk(StreamObserver<OperationResult> observer) {
+        private void respondOk(StreamObserver<PbOperationResult> observer) {
             respondOk(observer, null, 0);
         }
 
-        private void respondOk(StreamObserver<OperationResult> observer, String message) {
+        private void respondOk(StreamObserver<PbOperationResult> observer, String message) {
             respondOk(observer, message, 0);
         }
 
-        private void respondOk(StreamObserver<OperationResult> observer, String message, long commitId) {
-            var builder = OperationResult.newBuilder().setSuccess(true);
+        private void respondOk(StreamObserver<PbOperationResult> observer, String message, long commitId) {
+            var builder = PbOperationResult.newBuilder().setSuccess(true);
             if (message != null) builder.setMessage(message);
             if (commitId > 0) builder.setCommitId(commitId);
             observer.onNext(builder.build());
             observer.onCompleted();
         }
 
-        private void respondError(StreamObserver<OperationResult> observer, Exception e) {
-            observer.onNext(OperationResult.newBuilder()
+        private void respondError(StreamObserver<PbOperationResult> observer, Exception e) {
+            observer.onNext(PbOperationResult.newBuilder()
                     .setSuccess(false)
                     .setMessage(e.getMessage())
                     .build());

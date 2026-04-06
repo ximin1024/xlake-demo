@@ -19,110 +19,112 @@
  */
 package io.github.ximin.xlake.backend;
 
-import com.github.benmanes.caffeine.cache.*;
-import com.google.common.collect.Iterators;
+import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Policy;
+import com.github.benmanes.caffeine.cache.RemovalCause;
+import com.google.common.base.Throwables;
 import com.ibm.icu.impl.Pair;
-import io.github.ximin.xlake.backend.spark.KvInternalRow;
-import io.github.ximin.xlake.table.StoreState;
-import io.github.ximin.xlake.table.schema.Schema;
+import io.github.ximin.xlake.common.SingletonContainer;
+import io.github.ximin.xlake.storage.Storage;
+import io.github.ximin.xlake.table.*;
+import io.github.ximin.xlake.table.op.*;
+import io.github.ximin.xlake.writer.LmdbWriter;
+import io.github.ximin.xlake.writer.WriterFactory;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.parquet.hadoop.api.WriteSupport;
-import org.apache.spark.sql.catalyst.InternalRow;
 
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 
-import static io.github.ximin.xlake.common.utls.FileUtils.findMatchingPaths;
-
+import static io.github.ximin.xlake.common.FileUtils.findMatchingPaths;
+import static io.github.ximin.xlake.backend.LmdbInstance.generateInstanceId;
 
 @Slf4j
-public class DynamicMmapStore implements AutoCloseable {
+public class DynamicMmapStore implements Storage {
     private final String basePath;
-    private final long instanceMappedSizeMB;
+    private final long instanceMappedBytes;
+    //private final Arena arena;
 
-    // 监控是否有read only的 lmdb产生，这里想一下将这个功能内聚到这里，还是在外部进行操作
-    private final ScheduledExecutorService monitorService;
-    private final Arena arena;
-    private final ReentrantLock switchLock;
-    private final long totalMemoryLimit;
-    private final ExecutorService taskService;
-    private final Map<String, AtomicInteger> instanceNumMap;
+    // 全局资源锁，用于控制创建新实例时的内存检查和 Flush 触发
+    private final ReentrantLock globalLock;
     private final Map<String, AtomicInteger> totalRecords;
-    private final Map<String, Deque<String>> queuedInstanceId;
-    private AsyncLoadingCache<String, LmdbInstance> instances;
-    private final Schema schema;
+    private final AtomicLong totalUsedMemory = new AtomicLong(0);
 
-    public DynamicMmapStore(String basePath, long instanceSizeMB, Schema schema,
-                            WriteSupport<InternalRow> writeSupport) {
-        this.basePath = basePath;
-        this.instanceMappedSizeMB = instanceSizeMB;
-        this.queuedInstanceId = new ConcurrentHashMap<>();
-        this.instanceNumMap = new ConcurrentHashMap<>();
-        this.monitorService = Executors.newSingleThreadScheduledExecutor();
-        this.arena = Arena.ofConfined();
-        this.switchLock = new ReentrantLock();
-        this.totalMemoryLimit = Runtime.getRuntime().maxMemory();
-        this.taskService = Executors.newVirtualThreadPerTaskExecutor();
-        this.totalRecords = new ConcurrentHashMap<>();
-        this.schema = schema;
-        this.instances = Caffeine.newBuilder()
-                // 最大缓存1000个条目
-                .maximumSize(10)
-                // 设置自定义过期策略：根据存入的CacheData对象内的duration计算过期时间
-                .expireAfter(new CustomExpiry())
-                // 设置调度器，用于及时删除过期条目（尤其在写入不频繁的缓存中
-                // 对于Java 9及以上，可以使用Scheduler.systemScheduler()来使用系统调度线程
-                .scheduler(Scheduler.systemScheduler())
-                // 设置移除监听器，处理条目移除事件（包括过期移除）
-                .removalListener(new CustomRemovalListener(writeSupport, schema, ""))
-                // 构建异步缓存，默认使用CompletableFuture.supplyAsync在ForkJoinPool.commonPool()中执行加载任务
-                // 你也可以通过.executor()方法指定自定义线程池
-                .buildAsync(new CustomCacheLoader());
-        loadExistInstance();
+    // 要明确这个参数的逻辑，因为要支持多表，所以每张表的写并发数，都等于这个值
+    private final int writableNum;
+    private final long totalMemoryLimitBytes;
+    private final String remoteBasePath;
+
+    private final ConcurrentHashMap<String, TableStore> tableStores = new ConcurrentHashMap<>();
+    private final AsyncLoadingCache<String, String> instances;
+
+    private final ScheduledExecutorService monitorService;
+    private final ExecutorService flushExecutor;
+    private final DelayQueue<PendingDeletionItem> deletionQueue = new DelayQueue<>();
+    private final Thread deletionThread;
+
+    // todo
+    private final Consumer<FlushedInfo> metadataUpdater;
+
+    public static DynamicMmapStore getInstance(String basePath, String id) {
+        return SingletonContainer.getInstance(DynamicMmapStore.class, basePath, id);
     }
 
-    public LmdbInstance.WriteResult put(String uniqTableIdentifier, byte[] key, byte[] value) {
-        while (true) {
-            LmdbInstance current = currentLmdbInstance(uniqTableIdentifier);
-            if (current == null) {
-                createNewInstance(uniqTableIdentifier);
-                continue;
-            }
-            if (current.readOnly()) {
-                if (!switchToNewInstance(uniqTableIdentifier)) {
-                    return LmdbInstance.WriteResult.error(current.instanceId(),
-                            "Failed to switch new instance when current is read-only");
-                }
-                continue;
-            }
+    // 加载DynamicMmapStore时，需要做很多工作，并不仅仅是创建一个新的lmdb实例这么简单
+    // 比如，先查一下是否有已经存在的mmap文件，如果有，
+    // 加载成只读 or 可写实例（根据文件大小或者其他标记实现判断）
+    // 然后就是判断是否需要从wal进行回放生成lmdb实例，因为要实现lmdb的容错，当某个executor失败，触发重建executor操作的时候，
+    // 需要回放down掉的executor上所有没有被flush的lmdb实例
+    // 这里就有一个要求，wal机制，要能标识出怎么回放。也就是说，当某个lmdb被flush后，也要往wal中插入一条数据
+    private DynamicMmapStore(String basePath) {
+        this.basePath = basePath;
+        // todo read from conf
+        this.instanceMappedBytes = 128 * 1024 * 1024;
 
-            LmdbInstance.WriteResult result = current.put(key, value);
+        this.globalLock = new ReentrantLock();
 
-            if (result.isSuccess()) {
-                totalRecords.merge(uniqTableIdentifier,
-                        new AtomicInteger(1),
-                        (a, b) -> {
-                            a.getAndIncrement();
-                            return a;
-                        });
-                return result;
-            } else if (result.isMapFull()) {
-                current.markAsReadOnly();
-                if (!switchToNewInstance(uniqTableIdentifier)) {
-                    return LmdbInstance.WriteResult.error(result.instanceId(),
-                            "Switch to new lmdb instance failed after MAP_FULL");
-                }
-            } else {
-                return result;
+        // todo make sure this is right
+        this.totalMemoryLimitBytes = Runtime.getRuntime().maxMemory();
+        this.totalRecords = new ConcurrentHashMap<>();
+
+        this.instances = Caffeine.newBuilder()
+                .maximumSize(totalMemoryLimitBytes / instanceMappedBytes)
+                .evictionListener(this::onEviction)
+                .buildAsync(key -> key);
+
+        // todo read from conf
+        this.writableNum = Runtime.getRuntime().availableProcessors();
+        this.remoteBasePath = "";
+
+        loadExistInstance();
+
+        this.flushExecutor = Executors.newFixedThreadPool(1);
+
+        this.monitorService = Executors.newScheduledThreadPool(1);
+        this.monitorService.scheduleAtFixedRate(this::monitorMemory, 5, 5, TimeUnit.MINUTES);
+
+        this.deletionThread = new Thread(this::processDeletions, "Lmdb-Deletion-Thread");
+        deletionThread.setDaemon(true);
+        deletionThread.start();
+
+        this.metadataUpdater = result -> {
+            if (result.success()) {
+                log.info("Meta updated: Instance {} flushed to {}", result.instanceId(), result.hdfsPath());
+                // TODO: RPC call to Driver MetaStore to update Partition -> File mapping
             }
-        }
+        };
     }
 
     public StoreState currentState() {
@@ -130,176 +132,19 @@ public class DynamicMmapStore implements AutoCloseable {
         return null;
     }
 
-    private LmdbInstance currentLmdbInstance(String uniqTableIdentifier) {
-        Deque<String> instanceIds = queuedInstanceId.get(uniqTableIdentifier);
-        if (instanceIds == null) {
-            return null;
-        }
-        String currentInstanceId = instanceIds.peekLast();
-        if (currentInstanceId == null) {
-            throw new NoSuchElementException("No current instance found for uniq table " + uniqTableIdentifier);
-        }
-        CompletableFuture<LmdbInstance> current = instances.get(currentInstanceId);
-        try {
-            return current.get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    // todo 这里是否得有个read write lock，原子的标记某个lmdb要被淘汰了
-    private String coldest() {
-        final String[] coldestKey = new String[1];
-        Optional<Policy.Eviction<String, LmdbInstance>> evictionOpt = instances.synchronous().policy().eviction();
-        evictionOpt.ifPresent(eviction -> {
-            Map<String, LmdbInstance> coldest = eviction.coldest(1);
-            if (!coldest.isEmpty()) {
-                coldestKey[0] = coldest.keySet().iterator().next();
-                log.info(" coldest key (via synchronous view): {}", coldestKey[0]);
-            }
-        });
-        return coldestKey[0];
-    }
-
-    private boolean switchToNewInstance(String uniqTableIdentifier) {
-        switchLock.lock();
-        try {
-            LmdbInstance oldInstance = currentInstance(uniqTableIdentifier);
-            if (oldInstance == null) {
-                log.warn("Current instance {} is null", uniqTableIdentifier);
-                return false;
-            }
-            // todo 注意外层也套了一个while
-            if (!checkMemoryLimit()) {
-                // todo 内存不够，阻塞当前线程，先check是否有进行中的同步线程，如果没有，最高优强制进行同步线程
-                //  淘汰当下最优的readonly的lmdb
-                String coldest = coldest();
-                if (coldest == null) {
-                    log.warn("coldest is null for uniq table {}", uniqTableIdentifier);
-                    return false;
-                }
-                instances.synchronous().invalidate(coldest);
-                // todo 可通过监听机制，拿到缓存失效的处理结果
-            }
-
-            createNewInstance(uniqTableIdentifier);
-            return true;
-        } finally {
-            switchLock.unlock();
-        }
-    }
-
-    private boolean checkMemoryLimit() {
-        long totalUsedMemory = calculateTotalUsedMemory();
-        return totalUsedMemory + instanceMappedSizeMB <= totalMemoryLimit;
-    }
-
-    private long calculateTotalUsedMemory() {
-        AtomicLong total = new AtomicLong();
-        instances.asMap().values().forEach(lmdbInstance -> {
-            try {
-                total.addAndGet(lmdbInstance.get().getTotalUsageSize());
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        });
-
-        return total.get();
-    }
-
-    private void checkIfMeetsRequirements() {
-        // todo determine whether there is memory space to create new LmdbInstance
-        // if fail send events to trigger flush
-    }
-
-
-    private void loadExistInstance() {
-        List<Pair<String, Path>> matchingPaths;
-        try {
-            matchingPaths = findMatchingPaths(basePath)
-                    .stream()
-                    .map(path -> Pair.of(path.getFileName().toString().split("_")[1], path)).toList();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        matchingPaths.forEach(pair -> {
-            Deque<String> instanceQueue = this.queuedInstanceId.getOrDefault(pair.first, new ConcurrentLinkedDeque<>());
-            try (var instancePaths = Files.list(pair.second)) {
-                instancePaths.forEach(path -> {
-                    String instanceId = path.getFileName().toString();
-                    if (instanceId.startsWith("instance-")) {
-                        try {
-                            LmdbInstance instance = new LmdbInstance(
-                                    instanceId, path, instanceMappedSizeMB, arena);
-                            instanceQueue.add(instanceId);
-                            instances.put(instanceId, CompletableFuture.completedFuture(instance));
-                            instanceNumMap.merge(pair.first,
-                                    new AtomicInteger(1),
-                                    (a, b) -> {
-                                        a.getAndIncrement();
-                                        return a;
-                                    });
-                            System.out.println("Loaded existing instance: " + instanceId);
-                        } catch (Exception e) {
-                            System.err.println("Failed to load instance: " + instanceId);
-                        }
-                    }
-                });
-                queuedInstanceId.put(pair.first, instanceQueue);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    private String tablePath(String uniqTableIdentifier) {
-        return basePath + "_" + uniqTableIdentifier;
-    }
-
-    private void createNewInstance(String tableIdentifier) {
-        LmdbInstance current = currentLmdbInstance(tableIdentifier);
-        if (current != null) {
-            current.markAsReadOnly();
-        }
-        String instanceId = generateInstanceId();
-        LmdbInstance instance =
-                new LmdbInstance(instanceId, basePath, instanceMappedSizeMB, arena);
-        instanceNumMap.merge(tableIdentifier, new AtomicInteger(1), (a, b) -> {
-            a.getAndIncrement();
-            return a;
-        });
-        queuedInstanceId.computeIfAbsent(tableIdentifier, k -> new ConcurrentLinkedDeque<>()).add(instanceId);
-        instances.put(instanceId, CompletableFuture.completedFuture(instance));
-    }
-
-    // todo 是否并发安全
-    private String generateInstanceId() {
-        return "instance-" + System.currentTimeMillis();
-    }
-
-    public String get(String key) {
-        // todo 根据key range搜索
-        return null;
-    }
-
-    public LmdbInstance currentInstance(String tableIdentifier) {
-        Deque<String> queued = queuedInstanceId.get(tableIdentifier);
-        if (queued != null) {
-            String instanceId = queued.peekLast();
-            try {
-                assert instanceId != null;
-                return instances.get(instanceId).get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return null;
-    }
+//    public LmdbInstance getStoreForPartition(int partitionId) {
+//        String storeId = "writable-part-" + partitionId;
+//        LmdbInstance store = writableStores.get(storeId);
+//        if (store == null) {
+//            throw new IllegalStateException("Store not initialized for partition " + partitionId);
+//        }
+//        return store;
+//    }
 
     @Override
     public void close() throws Exception {
         monitorService.shutdown();
+        flushExecutor.shutdown();
         try {
             if (!monitorService.awaitTermination(5, TimeUnit.SECONDS)) {
                 monitorService.shutdownNow();
@@ -309,63 +154,336 @@ public class DynamicMmapStore implements AutoCloseable {
             Thread.currentThread().interrupt();
         }
 
-        for (CompletableFuture<LmdbInstance> instance : instances.asMap().values()) {
+        tableStores.forEach((key, tableStore) -> tableStore.close());
+    }
+
+    private void waitForResource() {
+        try {
+            Thread.sleep(100);
+            triggerFlushAsync();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private boolean checkMemoryAvailable() {
+        return totalUsedMemory.get() + instanceMappedBytes < totalMemoryLimitBytes * 0.9;
+    }
+
+    private long calculateTotalUsedMemory() {
+        AtomicLong total = new AtomicLong();
+        instances.asMap().values().forEach(instanceId -> {
             try {
-                instance.get().close();
-            } catch (Exception e) {
-                log.error(e.getMessage(), e);
+                addMemory(getLmdbInstance(instanceId.get()).getTotalUsageSize());
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        return total.get();
+    }
+
+    private void monitorMemory() {
+        if (totalUsedMemory.get() > totalMemoryLimitBytes * 0.9) {
+            log.warn("Memory usage high, triggering async flush");
+            triggerFlushAsync();
+        }
+    }
+
+    private void triggerFlushAsync() {
+        coldest().ifPresent(inst -> instances.synchronous().invalidate(inst));
+    }
+
+    private void triggerFlushSync() {
+        // 同步阻塞 Flush，简单等待 Flush 完成释放内存，实际可以配合 CountDownLatch
+        coldest().ifPresent(instanceId -> flushAndScheduleDeletion(getLmdbInstance(instanceId)));
+    }
+
+    private void onEviction(String instanceId, String value, RemovalCause cause) {
+        log.info("Instance {} evicted due to {}", instanceId, cause);
+        if (cause == RemovalCause.SIZE || cause == RemovalCause.EXPLICIT) {
+            LmdbInstance instance = getLmdbInstance(instanceId);
+            flushExecutor.submit(() -> flushAndScheduleDeletion(instance));
+        }
+    }
+
+    // 标记删除 -> Flush HDFS -> 更新元数据 -> 加入删除队列
+    private void flushAndScheduleDeletion(LmdbInstance instance) {
+        // 1. 标记删除，拒绝新的读/写请求
+        instance.markForDeletion();
+
+        try {
+            // 2. Flush 到 HDFS (Parquet)
+            // TODO: 实现实际的 Parquet 写入逻辑
+            String hdfsPath = remoteBasePath + "/" + instance.instanceId();
+            // flushToHdfs(instance, hdfsPath);
+            log.info("Flushed instance {} to {}", instance.instanceId(), hdfsPath);
+
+            // 3. 原子更新元数据
+            // TODO: 调用 MetaUpdater 更新路由表，将读请求指向 hdfsPath
+            // metadataUpdater.accept(new FlushResult(instance.instanceId(), hdfsPath));
+
+            // 4. 加入延迟删除队列
+            // 延迟 30 秒删除，确保“飞行中”的请求已经到达并完成
+            deletionQueue.offer(new PendingDeletionItem(instance, 30_000));
+
+        } catch (Exception e) {
+            log.error("Flush failed for instance {}", instance.instanceId(), e);
+            // 失败处理：是否重试？这里简单记录
+        }
+    }
+
+    public LmdbInstance getLmdbInstance(String instanceId) {
+        for (TableStore tableStore : tableStores.values()) {
+            LmdbInstance instance = tableStore.getInstance(instanceId);
+            if (instance != null) {
+                return instance;
+            }
+        }
+        return null;
+    }
+
+    private void loadExistInstance() {
+        log.info("Starting to load existing LMDB instances from {}", basePath);
+        Path baseDir = Paths.get(basePath);
+        if (!Files.exists(baseDir)) {
+            return;
+        }
+        // tableIdentifier, lmdbPath
+        List<Pair<String, Path>> matchingPaths;
+        try {
+            matchingPaths = findMatchingPaths(basePath)
+                    .stream()
+                    .map(path -> Pair.of(path.getFileName().toString().split("-")[1], path)).toList();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        matchingPaths.forEach(pair -> {
+            String tableIdentifier = pair.first;
+            try (var instancePaths = Files.list(pair.second)) {
+                instancePaths.forEach(path -> {
+                    String instanceId = path.getFileName().toString();
+                    if (instanceId.startsWith("inst-")) {
+                        try {
+                            if (!checkMemoryAvailable()) {
+                                triggerFlushSync();
+                                if (!checkMemoryAvailable()) {
+                                    log.error("Still no memory after flush. Skip loading {}", instanceId);
+                                }
+                            } else {
+                                LmdbInstance instance = new LmdbInstance(
+                                        instanceId, path, instanceMappedBytes);
+                                addMemory(instance.getTotalUsageSize());
+                                instances.put(instanceId, CompletableFuture.completedFuture(instanceId));
+                                TableStore tableStore = new TableStore(tableIdentifier, writableNum);
+                                if (instance.readOnly()) {
+                                    tableStore.addReadOnlyInstance(instance);
+                                } else {
+                                    if (tableStore.remainingWritable() < writableNum) {
+                                        tableStore.addWritableInstance(instance);
+                                    } else {
+                                        instance.markAsReadOnly();
+                                        tableStore.addReadOnlyInstance(instance);
+                                        log.warn("Max writable limit reached. Loaded instance {} as read-only.", instanceId);
+                                    }
+                                    tableStore.addWritableInstance(instance);
+                                }
+                                tableStores.put(tableIdentifier, tableStore);
+                                log.info("Loaded existing instance: {}", instanceId);
+                            }
+                        } catch (Exception e) {
+                            log.error("Failed to load instance: {}, exception is {}", instanceId,
+                                    Throwables.getStackTraceAsString(e));
+                        }
+                    }
+                });
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private void addMemory(long byteSize) {
+        this.totalUsedMemory.addAndGet(byteSize);
+    }
+
+    private void subMemory(long byteSize) {
+        this.totalUsedMemory.addAndGet(-byteSize);
+    }
+
+    private void processDeletions() {
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                // 阻塞直到时间到
+                PendingDeletionItem item = deletionQueue.take();
+                LmdbInstance inst = item.instance;
+
+                if (inst.tryWriteLock()) {
+                    try {
+                        log.info("Destroying physical files for instance {}", inst.instanceId());
+                        inst.destroy();
+                        subMemory(instanceMappedBytes);
+                    } finally {
+                        inst.unlockWrite();
+                    }
+                } else {
+                    // 有读事务还在进行，重新加入队列延迟删除
+                    log.warn("Instance {} still has active readers, retry deletion later", inst.instanceId());
+                    // 等10秒再试
+                    deletionQueue.offer(new PendingDeletionItem(inst, 10_000));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
         }
     }
 
-    private static class CustomExpiry implements Expiry<String, LmdbInstance> {
+    private void createNewInstance(String tableIdentifier) {
+        String instanceId = generateInstanceId(tableIdentifier);
+        LmdbInstance instance = new LmdbInstance(instanceId, Paths.get(basePath), instanceMappedBytes);
+        tableStores.get(tableIdentifier).addWritableInstance(instance);
+        addMemory(instanceMappedBytes);
+        instances.put(instanceId, CompletableFuture.completedFuture(instanceId));
+        log.info("Created new LMDB instance: {}", instanceId);
+    }
 
-        @Override
-        public long expireAfterCreate(String key, LmdbInstance value, long currentTime) {
-            return 0;
+    private LmdbInstance currentLmdbInstance(String tableIdentifier) {
+        TableStore store = tableStores.computeIfAbsent(tableIdentifier, id -> new TableStore(id, writableNum));
+        LmdbInstance instance = store.getCurrentWritableInstance();
+        if (instance == null) {
+            while (!tryAllocateNewWritableInstance(tableIdentifier)) {
+                // 内存不足且无法立即 Flush，等待
+                waitForResource();
+            }
+            instance = store.getCurrentWritableInstance();
         }
+        return instance;
+    }
 
-        @Override
-        public long expireAfterUpdate(String key, LmdbInstance value, long currentTime, long currentDuration) {
-            return 0;
-        }
+    private boolean tryAllocateNewWritableInstance(String tableIdentifier) {
+        globalLock.lock();
+        try {
+            // 1. 检查是否超过最大实例数限制
+            // 2. 检查内存是否足够
+            if (!checkMemoryAvailable()) {
+                // 尝试同步 Flush 释放空间
+                triggerFlushSync();
+                if (!checkMemoryAvailable()) {
+                    // 依然不够，等待异步 Flush 完成
+                    return false;
+                }
+            }
 
-        @Override
-        public long expireAfterRead(String key, LmdbInstance value, long currentTime, long currentDuration) {
-            return 0;
+            createNewInstance(tableIdentifier);
+            return true;
+        } finally {
+            globalLock.unlock();
         }
     }
 
-    private record CustomRemovalListener(WriteSupport<InternalRow> writeSupport,
-                                         Schema schema,
-                                         String remoteBasePath)
-            implements RemovalListener<String, LmdbInstance> {
-        @Override
-        public void onRemoval(String key, LmdbInstance value, RemovalCause cause) {
-            // TODO 清除缓存时进行原子更新，更新range数据分布信息
-            switch (cause) {
-                case REPLACED, EXPIRED, SIZE, EXPLICIT -> flushInternal(Iterators.transform(value.iterator(),
-                                input -> new KvInternalRow(input.getKey(), input.getValue(), schema)),
-                        value.instanceId());
+
+    private Optional<String> coldest() {
+        final String[] coldestKey = new String[1];
+        Optional<Policy.Eviction<String, String>> evictionOpt = instances.synchronous().policy().eviction();
+        evictionOpt.ifPresent(eviction -> {
+            Map<String, String> coldest = eviction.coldest(1);
+            if (!coldest.isEmpty()) {
+                coldestKey[0] = coldest.keySet().iterator().next();
+                log.info(" coldest key (via synchronous view): {}", coldestKey[0]);
+            }
+        });
+        return Optional.ofNullable(coldestKey[0]);
+    }
+
+    private boolean switchToNewInstance(String tableIdentifier) {
+        globalLock.lock();
+        try {
+            tableStores.get(tableIdentifier).rotateWritableInstance();
+            if (!checkMemoryAvailable()) {
+                // 内存不足，触发同步 Flush（阻塞当前写线程，直到释放出空间）
+                triggerFlushSync();
+                if (!checkMemoryAvailable()) {
+                    return false;
+                }
+            }
+
+            createNewInstance(tableIdentifier);
+            return true;
+        } finally {
+            globalLock.unlock();
+        }
+    }
+
+    @Override
+    public void write(WriteBuilder builder) {
+        String tableIdentifier = builder.table().uniqId();
+        LmdbInstance current = null;
+        while (current == null) {
+            current = currentLmdbInstance(tableIdentifier);
+            if (current == null) {
+                createNewInstance(tableIdentifier);
+                continue;
+            }
+
+            if (current.readOnly() || current.isMarkedForDeletion()) {
+                if (!switchToNewInstance(tableIdentifier)) {
+                    // 切换失败（通常是内存不足且无法立即 Flush）,简单自旋等待，或抛异常，这里选择短暂等待重试
+                    LockSupport.parkNanos(100_000_000);
+                }
             }
         }
 
-        private void flushInternal(Iterator<InternalRow> iterator, String instanceId) {
-            String remotePath = remoteBasePath + "/" + instanceId;
-            ParquetFlusher<InternalRow> flusher = new ParquetFlusher<>(iterator, remotePath, writeSupport);
-            flusher.flush();
+        if (current.tryEnterScope()) {
+            try {
+                builder.withWriter(WriterFactory
+                        .createWriter(
+                                WriterFactory.WriterType.LMDB,
+                                new Properties())
+                );
+                Write write = builder.build();
+                OpResult result = write.exec();
+
+                if (result.success()) {
+                    addMemory(write.writeSize());
+                    totalRecords.merge(tableIdentifier,
+                            new AtomicInteger(1),
+                            (a, b) -> {
+                                a.getAndIncrement();
+                                return a;
+                            });
+                } else if (LmdbWriter.MAPFULL_MESSAGE.equals(result.message().orElse(""))) {
+                    current.markAsReadOnly();
+                }
+            } finally {
+                current.exitScope();
+            }
         }
     }
 
-    private static class CustomCacheLoader implements CacheLoader<String, LmdbInstance> {
-        @Override
-        public LmdbInstance load(String key) throws Exception {
-            // 当缓存未命中时，提供默认的加载逻辑
-            // 例如，从数据库、文件或外部服务加载数据
-            // 这里返回一个默认值，实际应用中可根据key进行加载
-            System.out.println(">>> 通过CacheLoader加载数据，键: " + key);
-            //return new CacheData("默认加载的数据", Duration.ofSeconds(60)); // 默认过期时间60秒
-            return null;
+    @Override
+    public ReadResult read(Read read) {
+        return null;
+    }
+
+    private record PendingDeletionItem(LmdbInstance instance, long expireTime) implements Delayed {
+        private PendingDeletionItem(LmdbInstance instance, long expireTime) {
+            this.instance = instance;
+            this.expireTime = System.currentTimeMillis() + expireTime;
         }
+
+        @Override
+        public long getDelay(TimeUnit unit) {
+            return unit.convert(expireTime - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        @Override
+        public int compareTo(Delayed o) {
+            return Long.compare(expireTime, ((PendingDeletionItem) o).expireTime);
+        }
+    }
+
+    public record FlushedInfo(String instanceId, String hdfsPath, boolean success, Throwable t) {
     }
 }

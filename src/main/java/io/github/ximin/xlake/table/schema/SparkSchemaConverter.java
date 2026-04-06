@@ -25,13 +25,14 @@ import java.util.Map;
 public class SparkSchemaConverter {
     private static final SparkTypeConverter TYPE_CONVERTER = new SparkTypeConverter();
 
-    public static Schema toXlakeSchema(org.apache.spark.sql.types.StructType sparkSchema) {
+    public static Schema toNebulakeSchema(org.apache.spark.sql.types.StructType sparkSchema) {
         StructType structType = (StructType) TYPE_CONVERTER.toXlakeType(sparkSchema);
 
         return new Schema(
                 structType,
                 extractSchemaProperties(sparkSchema),
-                1L
+                1L,
+                List.of()
         );
     }
 

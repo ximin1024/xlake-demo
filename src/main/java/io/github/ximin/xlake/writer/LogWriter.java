@@ -17,21 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.table;
+package io.github.ximin.xlake.writer;
 
-import io.github.ximin.xlake.metastore.server.MetastoreClient;
-
-import java.util.function.Supplier;
-
-public record TableOp(String tableName, Supplier<MetastoreClient> clientSupplier) {
-
-//    public TableOp(String tableName) {
-//        this(tableName, MetastoreClient::getInstance);
-//    }
-//
-//    public Commit.CommitBuilder commitBuilder() {
-//        return Commit.builder()
-//                .tableName(tableName)
-//                .clientSupplier(clientSupplier);
-//    }
+public interface LogWriter<T> extends FileWriter<T> {
 }

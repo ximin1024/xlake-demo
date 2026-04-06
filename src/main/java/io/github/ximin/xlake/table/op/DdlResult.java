@@ -1,0 +1,215 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
+package io.github.ximin.xlake.table.op;
+
+import java.util.Optional;
+
+public interface DdlResult extends OpResult {
+
+    String operationType();
+
+    Optional<String> previousState();
+
+    Optional<String> newState();
+
+    final class CreateResult implements DdlResult {
+        private final boolean success;
+        private final String message;
+        private final Throwable error;
+        private final long timestamp;
+        private final String tableName;
+
+        public CreateResult(boolean success, String message, Throwable error, long timestamp, String tableName) {
+            this.success = success;
+            this.message = message;
+            this.error = error;
+            this.timestamp = timestamp;
+            this.tableName = tableName;
+        }
+
+        @Override
+        public boolean success() { return success; }
+
+        @Override
+        public Optional<String> message() { return Optional.ofNullable(message); }
+
+        @Override
+        public Optional<Throwable> error() { return Optional.ofNullable(error); }
+
+        @Override
+        public long timestamp() { return timestamp; }
+
+        @Override
+        public String operationType() { return "CREATE_TABLE"; }
+
+        @Override
+        public Optional<String> previousState() { return Optional.empty(); }
+
+        @Override
+        public Optional<String> newState() { return Optional.of("Table created: " + tableName); }
+
+        public String tableName() { return tableName; }
+
+        public static CreateResult ok(String tableName) {
+            return new CreateResult(true, "Table created successfully",
+                    null, System.currentTimeMillis(), tableName);
+        }
+    }
+
+    final class DropResult implements DdlResult {
+        private final boolean success;
+        private final String message;
+        private final Throwable error;
+        private final long timestamp;
+        private final String tableName;
+
+        public DropResult(boolean success, String message, Throwable error, long timestamp, String tableName) {
+            this.success = success;
+            this.message = message;
+            this.error = error;
+            this.timestamp = timestamp;
+            this.tableName = tableName;
+        }
+
+        @Override
+        public boolean success() { return success; }
+
+        @Override
+        public Optional<String> message() { return Optional.ofNullable(message); }
+
+        @Override
+        public Optional<Throwable> error() { return Optional.ofNullable(error); }
+
+        @Override
+        public long timestamp() { return timestamp; }
+
+        @Override
+        public String operationType() { return "DROP_TABLE"; }
+
+        @Override
+        public Optional<String> previousState() { return Optional.of("Table existed: " + tableName); }
+
+        @Override
+        public Optional<String> newState() { return Optional.of("Table dropped"); }
+
+        public String tableName() { return tableName; }
+
+        public static DropResult ok(String tableName) {
+            return new DropResult(true, "Table dropped successfully",
+                    null, System.currentTimeMillis(), tableName);
+        }
+    }
+
+    final class AlterSchemaResult implements DdlResult {
+        private final boolean success;
+        private final String message;
+        private final Throwable error;
+        private final long timestamp;
+        private final String previousSchemaVersion;
+        private final String newSchemaVersion;
+
+        public AlterSchemaResult(boolean success, String message, Throwable error, long timestamp,
+                                 String previousSchemaVersion, String newSchemaVersion) {
+            this.success = success;
+            this.message = message;
+            this.error = error;
+            this.timestamp = timestamp;
+            this.previousSchemaVersion = previousSchemaVersion;
+            this.newSchemaVersion = newSchemaVersion;
+        }
+
+        @Override
+        public boolean success() { return success; }
+
+        @Override
+        public Optional<String> message() { return Optional.ofNullable(message); }
+
+        @Override
+        public Optional<Throwable> error() { return Optional.ofNullable(error); }
+
+        @Override
+        public long timestamp() { return timestamp; }
+
+        @Override
+        public String operationType() { return "ALTER_SCHEMA"; }
+
+        @Override
+        public Optional<String> previousState() { return Optional.of("Schema version: " + previousSchemaVersion); }
+
+        @Override
+        public Optional<String> newState() { return Optional.of("Schema version: " + newSchemaVersion); }
+
+        public String previousSchemaVersion() { return previousSchemaVersion; }
+        public String newSchemaVersion() { return newSchemaVersion; }
+
+        public static AlterSchemaResult ok(String oldVersion, String newVersion) {
+            return new AlterSchemaResult(true, "Schema altered successfully",
+                    null, System.currentTimeMillis(), oldVersion, newVersion);
+        }
+    }
+
+    final class RefreshResult implements DdlResult {
+        private final boolean success;
+        private final String message;
+        private final Throwable error;
+        private final long timestamp;
+        private final long snapshotIdBefore;
+        private final long snapshotIdAfter;
+
+        public RefreshResult(boolean success, String message, Throwable error, long timestamp,
+                             long snapshotIdBefore, long snapshotIdAfter) {
+            this.success = success;
+            this.message = message;
+            this.error = error;
+            this.timestamp = timestamp;
+            this.snapshotIdBefore = snapshotIdBefore;
+            this.snapshotIdAfter = snapshotIdAfter;
+        }
+
+        @Override
+        public boolean success() { return success; }
+
+        @Override
+        public Optional<String> message() { return Optional.ofNullable(message); }
+
+        @Override
+        public Optional<Throwable> error() { return Optional.ofNullable(error); }
+
+        @Override
+        public long timestamp() { return timestamp; }
+
+        @Override
+        public String operationType() { return "REFRESH"; }
+
+        @Override
+        public Optional<String> previousState() { return Optional.of("Snapshot ID: " + snapshotIdBefore); }
+
+        @Override
+        public Optional<String> newState() { return Optional.of("Snapshot ID: " + snapshotIdAfter); }
+
+        public long snapshotIdBefore() { return snapshotIdBefore; }
+        public long snapshotIdAfter() { return snapshotIdAfter; }
+
+        public static RefreshResult ok(long before, long after) {
+            return new RefreshResult(true, "Refresh completed successfully",
+                    null, System.currentTimeMillis(), before, after);
+        }
+    }
+}

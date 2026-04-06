@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static io.github.ximin.xlake.common.utls.Strs.leftPad;
+import static io.github.ximin.xlake.common.Strs.leftPad;
 
 
 public class RocksdbPriorityQueue {

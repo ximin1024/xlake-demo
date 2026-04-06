@@ -19,11 +19,9 @@
  */
 package io.github.ximin.xlake.table.schema;
 
-import java.util.*;
-
-sealed interface ComplexType extends XlakeType permits ArrayType, MapType, StructType {
-    default XlakeType.TypeCategory category() {
-        return XlakeType.TypeCategory.COMPLEX;
+public sealed interface ComplexType extends XlakeType permits ArrayType, MapType, StructType {
+    default TypeCategory category() {
+        return TypeCategory.COMPLEX;
     }
 }
 
@@ -86,79 +84,3 @@ record MapType(XlakeType keyType, XlakeType valueType, boolean isNullable, Strin
     }
 }
 
-// 结构体字段
-record StructField(String name, XlakeType dataType, String comment, Map<String, String> metadata) {
-    public StructField {
-        if (name == null || name.trim().isEmpty()) throw new IllegalArgumentException("Field name cannot be empty");
-        if (dataType == null) throw new IllegalArgumentException("Field data type cannot be null");
-        comment = comment != null ? comment : "";
-        metadata = metadata != null ? Map.copyOf(metadata) : Map.of();
-    }
-
-    public StructField(String name, XlakeType dataType) {
-        this(name, dataType, "", Map.of());
-    }
-
-    public StructField(String name, XlakeType dataType, String comment) {
-        this(name, dataType, comment, Map.of());
-    }
-
-    public StructField withComment(String newComment) {
-        return new StructField(name, dataType, newComment, metadata);
-    }
-
-    public StructField withMetadata(String key, String value) {
-        Map<String, String> newMetadata = new HashMap<>(metadata);
-        newMetadata.put(key, value);
-        return new StructField(name, dataType, comment, newMetadata);
-    }
-}
-
-// 结构体类型
-record StructType(List<StructField> fields, boolean isNullable, String description) implements ComplexType {
-    public StructType {
-        if (fields == null || fields.isEmpty())
-            throw new IllegalArgumentException("Struct must have at least one field");
-        // 检查字段名重复
-        Set<String> fieldNames = new HashSet<>();
-        for (StructField field : fields) {
-            if (!fieldNames.add(field.name())) {
-                throw new IllegalArgumentException("Duplicate field name: " + field.name());
-            }
-        }
-        fields = List.copyOf(fields);
-        description = description != null ? description : "Struct with " + fields.size() + " fields";
-    }
-
-    public StructType(List<StructField> fields) {
-        this(fields, true, null);
-    }
-
-    public String name() {
-        return "struct<" + fields.stream()
-                .map(f -> f.name() + ": " + f.dataType().name())
-                .reduce((a, b) -> a + ", " + b)
-                .orElse("") + ">";
-    }
-
-    public int id() {
-        return 102;
-    }
-
-    public <T> T accept(TypeVisitor<T> visitor) {
-        return visitor.visit(this);
-    }
-
-    public XlakeType copyWithNullable(boolean nullable) {
-        return new StructType(fields, nullable, description);
-    }
-
-    public Optional<StructField> field(String name) {
-        return fields.stream().filter(f -> f.name().equals(name)).findFirst();
-    }
-
-    public XlakeType fieldType(String name) {
-        return field(name).map(StructField::dataType)
-                .orElseThrow(() -> new IllegalArgumentException("Field not found: " + name));
-    }
-}

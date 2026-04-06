@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+
 public record Direct(String targetColumn, Expression valueExpression) implements Assignment {
 
     public Direct(String targetColumn, Comparable value) {
@@ -36,7 +37,7 @@ public record Direct(String targetColumn, Expression valueExpression) implements
     @Override
     public boolean evaluate(Map<String, Comparable> row) {
         // 赋值表达式本身不用于谓词求值
-        return true;
+        throw new UnsupportedOperationException("Direct is for structure representation only");
     }
 
     @Override

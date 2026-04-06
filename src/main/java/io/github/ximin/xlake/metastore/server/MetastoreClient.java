@@ -1,3 +1,22 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package io.github.ximin.xlake.metastore.server;
 
 import io.github.ximin.xlake.meta.*;
@@ -42,9 +61,9 @@ public class MetastoreClient implements AutoCloseable {
         return channel;
     }
 
-    public void createTable(TableMetadata metadata) {
+    public void createTable(PbTableMetadata metadata) {
         try {
-            var request = CreateTableRequest.newBuilder().setMetadata(metadata).build();
+            var request = PbCreateTableRequest.newBuilder().setMetadata(metadata).build();
             var result = stub.createTable(request);
             if (!result.getSuccess()) {
                 throw new RuntimeException("CreateTable failed: " + result.getMessage());
@@ -56,7 +75,7 @@ public class MetastoreClient implements AutoCloseable {
 
     public void dropTable(String tableName) {
         try {
-            var request = DropTableRequest.newBuilder().setTableName(tableName).build();
+            var request = PbDropTableRequest.newBuilder().setTableName(tableName).build();
             var result = stub.dropTable(request);
             if (!result.getSuccess()) {
                 throw new RuntimeException("DropTable failed: " + result.getMessage());
@@ -66,9 +85,9 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public Optional<TableMetadata> getTableMetadata(String tableName) {
+    public Optional<PbTableMetadata> getTableMetadata(String tableName) {
         try {
-            var request = GetTableRequest.newBuilder().setTableName(tableName).build();
+            var request = PbGetTableRequest.newBuilder().setTableName(tableName).build();
             return Optional.of(stub.getTable(request));
         } catch (StatusRuntimeException e) {
             if (e.getStatus().getCode() == io.grpc.Status.NOT_FOUND.getCode()) {
@@ -78,9 +97,9 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public void alterTable(String tableName, Schema newSchema) {
+    public void alterTable(String tableName, PbSchema newSchema) {
         try {
-            var request = AlterTableRequest.newBuilder()
+            var request = PbAlterTableRequest.newBuilder()
                     .setTableName(tableName)
                     .setNewSchema(newSchema)
                     .build();
@@ -93,18 +112,18 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public List<Snapshot> getTableSnapshots(String tableName) {
+    public List<PbSnapshot> getTableSnapshots(String tableName) {
         try {
-            var request = GetSnapshotsRequest.newBuilder().setTableName(tableName).build();
+            var request = PbGetSnapshotsRequest.newBuilder().setTableName(tableName).build();
             return stub.getSnapshots(request).getSnapshotsList();
         } catch (StatusRuntimeException e) {
             throw new RuntimeException("gRPC error in getTableSnapshots", e);
         }
     }
 
-    public Optional<Snapshot> getSnapshot(String tableName, long snapshotId) {
+    public Optional<PbSnapshot> getSnapshot(String tableName, long snapshotId) {
         try {
-            var request = GetSnapshotRequest.newBuilder()
+            var request = PbGetSnapshotRequest.newBuilder()
                     .setTableName(tableName)
                     .setSnapshotId(snapshotId)
                     .build();
@@ -117,9 +136,9 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public long beginCommit(List<TableOperation> operations) {
+    public long beginCommit(List<PbTableOperation> operations) {
         try {
-            var request = CommitRequest.newBuilder()
+            var request = PbCommitRequest.newBuilder()
                     .setCommitId(System.currentTimeMillis())
                     .addAllOperations(operations)
                     .build();
@@ -135,7 +154,7 @@ public class MetastoreClient implements AutoCloseable {
 
     public boolean commit(long commitId) {
         try {
-            var result = stub.commit(CommitId.newBuilder().setValue(commitId).build());
+            var result = stub.commit(PbCommitId.newBuilder().setValue(commitId).build());
             return result.getSuccess();
         } catch (StatusRuntimeException e) {
             log.error("gRPC error in commit: {}", commitId, e);
@@ -145,7 +164,7 @@ public class MetastoreClient implements AutoCloseable {
 
     public boolean abortCommit(long commitId) {
         try {
-            var result = stub.abortCommit(CommitId.newBuilder().setValue(commitId).build());
+            var result = stub.abortCommit(PbCommitId.newBuilder().setValue(commitId).build());
             return result.getSuccess();
         } catch (StatusRuntimeException e) {
             log.error("gRPC error in abortCommit: {}", commitId, e);
@@ -153,32 +172,32 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public OperationResult commitOperations(String tableName, long commitId, List<TableOperation> operations) {
+    public PbOperationResult commitOperations(String tableName, long commitId, List<PbTableOperation> operations) {
         try {
-            var request = CommitRequest.newBuilder()
+            var request = PbCommitRequest.newBuilder()
                     .setCommitId(commitId)
                     .addAllOperations(operations)
                     .build();
             var result = stub.beginCommit(request);
 
             if (!result.getSuccess()) {
-                return OperationResult.newBuilder()
+                return PbOperationResult.newBuilder()
                         .setSuccess(false)
                         .setMessage("beginCommit failed")
                         .build();
             }
 
-            var commitResult = stub.commit(CommitId.newBuilder().setValue(commitId).build());
+            var commitResult = stub.commit(PbCommitId.newBuilder().setValue(commitId).build());
             return commitResult;
         } catch (Exception e) {
-            return OperationResult.newBuilder()
+            return PbOperationResult.newBuilder()
                     .setSuccess(false)
                     .setMessage(e.getMessage())
                     .build();
         }
     }
 
-    public void putFile(FileMetadata fileMeta) {
+    public void putFile(PbFileMetadata fileMeta) {
         try {
             var result = stub.putFile(fileMeta);
             if (!result.getSuccess()) {
@@ -189,18 +208,18 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public List<FileMetadata> listFiles(String tableName) {
+    public List<PbFileMetadata> listFiles(String tableName) {
         try {
-            var request = ListFilesRequest.newBuilder().setTableName(tableName).build();
+            var request = PbListFilesRequest.newBuilder().setTableName(tableName).build();
             return stub.listFiles(request).getFilesList();
         } catch (StatusRuntimeException e) {
             throw new RuntimeException("gRPC error in listFiles", e);
         }
     }
 
-    public List<FileMetadata> listFiles(String tableName, int level) {
+    public List<PbFileMetadata> listFiles(String tableName, int level) {
         try {
-            var request = ListFilesRequest.newBuilder()
+            var request = PbListFilesRequest.newBuilder()
                     .setTableName(tableName)
                     .setLevel(level)
                     .build();
@@ -212,7 +231,7 @@ public class MetastoreClient implements AutoCloseable {
 
     public void removeFile(String tableName, String filePath) {
         try {
-            var meta = FileMetadata.newBuilder()
+            var meta = PbFileMetadata.newBuilder()
                     .setTableName(tableName)
                     .setFilePath(filePath)
                     .build();
@@ -225,9 +244,9 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public void putUpdateEntry(UpdateEntry entry) {
+    public void putUpdateEntry(PbUpdateEntry entry) {
         try {
-            var request = PutUpdateEntryRequest.newBuilder().setEntry(entry).build();
+            var request = PbPutUpdateEntryRequest.newBuilder().setEntry(entry).build();
             var result = stub.putUpdateEntry(request);
             if (!result.getSuccess()) {
                 throw new RuntimeException("PutUpdateEntry failed: " + result.getMessage());
@@ -237,9 +256,9 @@ public class MetastoreClient implements AutoCloseable {
         }
     }
 
-    public List<UpdateEntry> getUpdateEntries(String tableName) {
+    public List<PbUpdateEntry> getUpdateEntries(String tableName) {
         try {
-            var request = GetUpdateEntriesRequest.newBuilder().setTableName(tableName).build();
+            var request = PbGetUpdateEntriesRequest.newBuilder().setTableName(tableName).build();
             return stub.getUpdateEntries(request).getEntriesList();
         } catch (StatusRuntimeException e) {
             throw new RuntimeException("gRPC error in getUpdateEntries", e);
@@ -248,7 +267,7 @@ public class MetastoreClient implements AutoCloseable {
 
     public void deleteUpdateEntry(String entryId) {
         try {
-            var request = DeleteUpdateEntryRequest.newBuilder().setEntryId(entryId).build();
+            var request = PbDeleteUpdateEntryRequest.newBuilder().setEntryId(entryId).build();
             var result = stub.deleteUpdateEntry(request);
             if (!result.getSuccess()) {
                 throw new RuntimeException("DeleteUpdateEntry failed: " + result.getMessage());

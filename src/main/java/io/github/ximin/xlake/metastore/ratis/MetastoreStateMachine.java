@@ -1,3 +1,22 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package io.github.ximin.xlake.metastore.ratis;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -102,20 +121,20 @@ public class MetastoreStateMachine extends BaseStateMachine {
     }
 
     private String extractOpType(byte[] data) throws InvalidProtocolBufferException {
-        var envelope = RaftOpEnvelope.parseFrom(data);
+        var envelope = PbRaftOpEnvelope.parseFrom(data);
         return envelope.getOpType();
     }
 
     private CompletableFuture<Message> handleGet(byte[] data) throws IOException {
-        var envelope = RaftOpEnvelope.parseFrom(data);
-        var getRequest = GetRequest.parseFrom(envelope.getPayload());
+        var envelope = PbRaftOpEnvelope.parseFrom(data);
+        var getRequest = PbGetRequest.parseFrom(envelope.getPayload());
         byte[] value = store.get(getRequest.getKey().toByteArray());
 
-        GetResponse response;
+        PbGetResponse response;
         if (value == null) {
-            response = GetResponse.getDefaultInstance();
+            response = PbGetResponse.getDefaultInstance();
         } else {
-            response = GetResponse.newBuilder()
+            response = PbGetResponse.newBuilder()
                     .setValue(com.google.protobuf.ByteString.copyFrom(value))
                     .build();
         }
@@ -123,11 +142,11 @@ public class MetastoreStateMachine extends BaseStateMachine {
     }
 
     private CompletableFuture<Message> handleScanPrefix(byte[] data) throws InvalidProtocolBufferException {
-        var envelope = RaftOpEnvelope.parseFrom(data);
-        var scanRequest = ScanPrefixRequest.parseFrom(envelope.getPayload());
+        var envelope = PbRaftOpEnvelope.parseFrom(data);
+        var scanRequest = PbScanPrefixRequest.parseFrom(envelope.getPayload());
         List<byte[]> values = kvScanByPrefix(scanRequest.getPrefix().toByteArray());
 
-        ScanPrefixResponse response = ScanPrefixResponse.newBuilder()
+        PbScanPrefixResponse response = PbScanPrefixResponse.newBuilder()
                 .addAllValues(values.stream()
                         .map(com.google.protobuf.ByteString::copyFrom)
                         .toList())
@@ -136,15 +155,15 @@ public class MetastoreStateMachine extends BaseStateMachine {
     }
 
     private Message handlePut(byte[] data) throws IOException {
-        var envelope = RaftOpEnvelope.parseFrom(data);
-        var putRequest = PutRequest.parseFrom(envelope.getPayload());
+        var envelope = PbRaftOpEnvelope.parseFrom(data);
+        var putRequest = PbPutRequest.parseFrom(envelope.getPayload());
         store.put(putRequest.getKey().toByteArray(), putRequest.getValue().toByteArray());
         return Message.EMPTY;
     }
 
     private Message handleDelete(byte[] data) throws IOException {
-        var envelope = RaftOpEnvelope.parseFrom(data);
-        var deleteRequest = DeleteRequest.parseFrom(envelope.getPayload());
+        var envelope = PbRaftOpEnvelope.parseFrom(data);
+        var deleteRequest = PbDeleteRequest.parseFrom(envelope.getPayload());
         store.delete(deleteRequest.getKey().toByteArray());
         return Message.EMPTY;
     }

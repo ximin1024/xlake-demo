@@ -42,12 +42,6 @@ public class SparkDataWriterFactory implements DataWriterFactory {
 
     @Override
     public DataWriter<InternalRow> createWriter(int partitionId, long taskId) {
-        return SparkWriterFactory.<InternalRow>builder()
-                .schema(requiredSchema)
-                .writeConf(writeConf)
-                .commitId(commitId)
-                .tableIdentifier(tableIdentifier)
-                .build()
-                .createWriter();
+        return null;
     }
 }

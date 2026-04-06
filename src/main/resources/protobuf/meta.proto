@@ -25,45 +25,88 @@ enum PrimitiveType {
   TIMESTAMP = 12;
 }
 
-message DataType {
+message PbDataType {
   PrimitiveType primitive_type = 1;
   optional int32 precision = 2;
   optional int32 scale = 3;
   bool is_nullable = 4;
 }
 
-message StructField {
+message PbStructField {
   string field_name = 1;
-  DataType data_type = 2;
+  PbDataType data_type = 2;
   optional string comment = 3;
 }
 
-message StructType {
-  repeated StructField fields = 1;
+message PbStructType {
+  repeated PbStructField fields = 1;
 }
 
 // ==================== Schema & 约束 ====================
 
-message PrimaryKeyConstraint {
+message PbPrimaryKeyConstraint {
   repeated string field_names = 1;
 }
 
-message Schema {
-  StructType struct_type = 1;
+message PbSchema {
+  PbStructType struct_type = 1;
   map<string, string> properties = 2;
   int64 version = 3;
-  repeated PrimaryKeyConstraint constraints = 4;
+  repeated PbPrimaryKeyConstraint constraints = 4;
 }
 
 // ==================== 快照 ====================
 
-message Snapshot {
+message PbSnapshot {
   int64 snapshot_id = 1;
   string manifest_list = 2;
   int64 timestamp = 3;
   string summary = 4;
   string operation = 5;
-  Schema schema = 6;
+  PbSchema schema = 6;
+}
+
+// ==================== 分桶与分区 ====================
+
+enum BucketTransform {
+  BUCKET_TRANSFORM_UNSPECIFIED = 0;
+  IDENTITY = 1;       // 原值（无分区，单桶）
+  HASH = 2;           // Hash 分桶
+  RANGE = 3;          // Range 分区
+  VALUE = 4;          // Value 分区（离散值分区）
+}
+
+message PbBucketSpec {
+  string source_column = 1;
+  BucketTransform transform = 2;
+  int32 num_buckets = 3;          // 0 表示由 transform 决定数量
+  bool hidden = 4;                // 单桶时是否隐藏目录层级
+}
+
+message PbPartitionSpec {
+  repeated PbBucketSpec bucket_specs = 1;     // 多级分桶规则
+  int32 partition_fields_count = 2;         // 参与分区的字段数
+}
+
+// ==================== 隐藏列配置 ====================
+
+enum HiddenColumnType {
+  HIDDEN_COLUMN_TYPE_UNSPECIFIED = 0;
+  ROW_NUMBER = 1;              // 行号（所有表都有）
+  HIDDEN_PRIMARY_KEY = 2;      // 隐藏自增主键（仅 AppendOnly）
+  COMMIT_TIMESTAMP = 3;        // 提交时间戳
+  OPERATION_TYPE = 4;          // 操作类型标记
+}
+
+message PbHiddenColumnDef {
+  HiddenColumnType type = 1;
+  string column_name = 2;      // 实际列名如 _row_number
+  PbDataType data_type = 3;
+  bool visible = 4;            // 用户是否可见
+}
+
+message PbHiddenColumnConfig {
+  repeated PbHiddenColumnDef columns = 1;
 }
 
 // ==================== 表元数据 ====================
@@ -74,14 +117,25 @@ enum TableType {
   APPEND_ONLY = 2;
 }
 
-message TableMetadata {
-  string table_name = 1;
-  TableType table_type = 2;
-  Schema schema = 3;
-  Snapshot current_snapshot = 4;
-  map<string, string> properties = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp updated_at = 7;
+message PbTableIdentifier {
+  string catalog = 1;           // 目录名（默认 "default"）
+  string database = 2;          // 数据库名
+  string table = 3;             // 表名
+}
+
+message PbTableMetadata {
+  PbTableIdentifier identifier = 1;
+  int64 table_id = 2;           // 全局唯一表ID
+  TableType table_type = 3;
+  PbSchema schema = 4;
+  PbPrimaryKeyConstraint primary_key = 5;
+  PbPartitionSpec partition_spec = 6;
+  PbHiddenColumnConfig hidden_columns = 7;
+  PbSnapshot current_snapshot = 8;
+  map<string, string> properties = 9;
+  string location = 10;         // 数据存储路径
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
 }
 
 // ==================== Expression（核心能力）====================
@@ -115,7 +169,7 @@ enum ExprType {
   ARITHMETIC_DIVIDE = 25;
 }
 
-message LiteralValue {
+message PbLiteralValue {
   oneof value {
     bool bool_val = 1;
     int32 int32_val = 2;
@@ -127,20 +181,20 @@ message LiteralValue {
   }
 }
 
-message Expression {
+message PbExpression {
   ExprType expr_type = 1;
-  repeated Expression children = 2;
-  optional LiteralValue literal = 3;
+  repeated PbExpression children = 2;
+  optional PbLiteralValue literal = 3;
   optional string column_ref = 4;
   map<string, string> metadata = 5;
 }
 
 // ==================== Lazy Update（范围更新）====================
 
-message UpdateEntry {
+message PbUpdateEntry {
   string entry_id = 1;
   string table_name = 2;
-  Expression predicate = 3;
+  PbExpression predicate = 3;
   map<string, string> updates = 4; // column -> serialized Comparable value
   int64 timestamp = 5;
 }
@@ -153,7 +207,7 @@ enum FileFormat {
   ORC = 2;
 }
 
-message FileMetadata {
+message PbFileMetadata {
   string file_path = 1;
   int32 level = 2;
   bytes min_key = 3;
@@ -167,20 +221,20 @@ message FileMetadata {
 
 // ==================== 操作与事务 ====================
 
-message TableOperation {
+message PbTableOperation {
   string operation_type = 1;
   string table_name = 2;
-  optional Schema schema = 3;
+  optional PbSchema schema = 3;
   map<string, string> properties = 4;
   int64 timestamp = 5;
 }
 
-message CommitRequest {
+message PbCommitRequest {
   int64 commit_id = 1;
-  repeated TableOperation operations = 2;
+  repeated PbTableOperation operations = 2;
 }
 
-message OperationResult {
+message PbOperationResult {
   bool success = 1;
   optional string message = 2;
   optional int64 commit_id = 3;
@@ -188,54 +242,54 @@ message OperationResult {
 
 // ==================== 请求/响应 ====================
 
-message CreateTableRequest {
-  TableMetadata metadata = 1;
+message PbCreateTableRequest {
+  PbTableMetadata metadata = 1;
 }
 
-message DropTableRequest {
+message PbDropTableRequest {
   string table_name = 1;
 }
 
-message GetTableRequest {
+message PbGetTableRequest {
   string table_name = 1;
 }
 
-message GetSnapshotRequest {
+message PbGetSnapshotRequest {
   string table_name = 1;
   int64 snapshot_id = 2;
 }
 
-message GetSnapshotsRequest {
+message PbGetSnapshotsRequest {
   string table_name = 1;
 }
 
-message AlterTableRequest {
+message PbAlterTableRequest {
   string table_name = 1;
-  Schema new_schema = 2;
+  PbSchema new_schema = 2;
 }
 
-message ListFilesRequest {
+message PbListFilesRequest {
   string table_name = 1;
   optional int32 level = 2;
 }
 
-message ListFilesResponse {
-  repeated FileMetadata files = 1;
+message PbListFilesResponse {
+  repeated PbFileMetadata files = 1;
 }
 
-message PutUpdateEntryRequest {
-  UpdateEntry entry = 1;
+message PbPutUpdateEntryRequest {
+  PbUpdateEntry entry = 1;
 }
 
-message GetUpdateEntriesRequest {
+message PbGetUpdateEntriesRequest {
   string table_name = 1;
 }
 
-message GetUpdateEntriesResponse {
-  repeated UpdateEntry entries = 1;
+message PbGetUpdateEntriesResponse {
+  repeated PbUpdateEntry entries = 1;
 }
 
-message DeleteUpdateEntryRequest {
+message PbDeleteUpdateEntryRequest {
   string entry_id = 1;
 }
 
@@ -244,35 +298,35 @@ message DeleteUpdateEntryRequest {
 service MetastoreService {
 
   // --- 表管理 ---
-  rpc CreateTable(CreateTableRequest) returns (OperationResult);
-  rpc DropTable(DropTableRequest) returns (OperationResult);
-  rpc GetTable(GetTableRequest) returns (TableMetadata);
-  rpc AlterTable(AlterTableRequest) returns (OperationResult);
+  rpc CreateTable(PbCreateTableRequest) returns (PbOperationResult);
+  rpc DropTable(PbDropTableRequest) returns (PbOperationResult);
+  rpc GetTable(PbGetTableRequest) returns (PbTableMetadata);
+  rpc AlterTable(PbAlterTableRequest) returns (PbOperationResult);
 
   // --- 快照管理 ---
-  rpc GetSnapshot(GetSnapshotRequest) returns (Snapshot);
-  rpc GetSnapshots(GetSnapshotsRequest) returns (SnapshotList);
+  rpc GetSnapshot(PbGetSnapshotRequest) returns (PbSnapshot);
+  rpc GetSnapshots(PbGetSnapshotsRequest) returns (PbSnapshotList);
 
   // --- 事务 ---
-  rpc BeginCommit(CommitRequest) returns (OperationResult);
-  rpc Commit(CommitId) returns (OperationResult);
-  rpc AbortCommit(CommitId) returns (OperationResult);
+  rpc BeginCommit(PbCommitRequest) returns (PbOperationResult);
+  rpc Commit(PbCommitId) returns (PbOperationResult);
+  rpc AbortCommit(PbCommitId) returns (PbOperationResult);
 
   // --- 文件元数据（Compaction / Scan 使用）---
-  rpc PutFile(FileMetadata) returns (OperationResult);
-  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
-  rpc RemoveFile(FileMetadata) returns (OperationResult);
+  rpc PutFile(PbFileMetadata) returns (PbOperationResult);
+  rpc ListFiles(PbListFilesRequest) returns (PbListFilesResponse);
+  rpc RemoveFile(PbFileMetadata) returns (PbOperationResult);
 
   // --- Lazy Update 管理（范围更新核心）---
-  rpc PutUpdateEntry(PutUpdateEntryRequest) returns (OperationResult);
-  rpc GetUpdateEntries(GetUpdateEntriesRequest) returns (GetUpdateEntriesResponse);
-  rpc DeleteUpdateEntry(DeleteUpdateEntryRequest) returns (OperationResult);
+  rpc PutUpdateEntry(PbPutUpdateEntryRequest) returns (PbOperationResult);
+  rpc GetUpdateEntries(PbGetUpdateEntriesRequest) returns (PbGetUpdateEntriesResponse);
+  rpc DeleteUpdateEntry(PbDeleteUpdateEntryRequest) returns (PbOperationResult);
 }
 
-message SnapshotList {
-  repeated Snapshot snapshots = 1;
+message PbSnapshotList {
+  repeated PbSnapshot snapshots = 1;
 }
 
-message CommitId {
+message PbCommitId {
   int64 value = 1;
 }
