@@ -19,5 +19,18 @@
  */
 package io.github.ximin.xlake.table.op;
 
-public interface Read {
+import io.github.ximin.xlake.backend.query.Expression;
+import io.github.ximin.xlake.storage.DataBlock;
+
+import java.util.List;
+
+public interface Read extends Op {
+
+    List<DataBlock> getDataBlocks();
+
+    long estimatedSize();
+
+    Expression getPushedPredicate();
+
+    boolean isPrimaryKeyLookup();
 }

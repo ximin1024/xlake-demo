@@ -19,5 +19,60 @@
  */
 package io.github.ximin.xlake.table.op;
 
-public interface DropTable {
+import io.github.ximin.xlake.table.GrpcTableMetaClient;
+import io.github.ximin.xlake.table.TableMetaClient;
+import io.github.ximin.xlake.table.XlakeTable;
+
+import java.util.function.Supplier;
+
+public class DropTable extends RpcOp {
+    private final static String TYPE = "DROP_TABLE";
+
+    private DropTable(XlakeTable table, Supplier<TableMetaClient> clientSupplier) {
+        super(table, clientSupplier);
+    }
+
+    @Override
+    public OpResult exec() {
+        try {
+            getClient().dropTable(table.name());
+            return RpcOp.Result.ok("Table dropped: " + table.name());
+        } catch (Exception e) {
+            return RpcOp.Result.error("Drop table failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String type() {
+        return TYPE;
+    }
+
+    public static DropTableBuilder builder() {
+        return new DropTableBuilder();
+    }
+
+    public static class DropTableBuilder {
+        private XlakeTable nebulakeTable;
+        private Supplier<TableMetaClient> clientSupplier;
+
+        public DropTableBuilder tableName(XlakeTable nebulakeTable) {
+            this.nebulakeTable = nebulakeTable;
+            return this;
+        }
+
+        public DropTableBuilder clientSupplier(Supplier<TableMetaClient> clientSupplier) {
+            this.clientSupplier = clientSupplier;
+            return this;
+        }
+
+        public DropTable build() {
+            if (nebulakeTable == null) {
+                throw new IllegalStateException("tableName must be set");
+            }
+            if (clientSupplier == null) {
+                clientSupplier = GrpcTableMetaClient::new;
+            }
+            return new DropTable(nebulakeTable, clientSupplier);
+        }
+    }
 }

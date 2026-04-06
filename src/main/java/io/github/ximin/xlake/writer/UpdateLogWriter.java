@@ -17,22 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.table.op;
+package io.github.ximin.xlake.writer;
 
-import io.github.ximin.xlake.metastore.server.MetastoreClient;
-
-import java.util.function.Supplier;
-
-public abstract class RemoteOp implements Op {
-    protected final String tableName;
-    protected final Supplier<MetastoreClient> clientSupplier;
-
-    protected RemoteOp(String tableName, Supplier<MetastoreClient> clientSupplier) {
-        this.tableName = tableName;
-        this.clientSupplier = clientSupplier;
-    }
-
-    protected MetastoreClient getClient() {
-        return clientSupplier.get();
-    }
+public class UpdateLogWriter {
 }

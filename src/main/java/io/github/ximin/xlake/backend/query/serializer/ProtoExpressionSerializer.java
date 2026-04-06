@@ -1,18 +1,32 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package io.github.ximin.xlake.backend.query.serializer;
 
 import io.github.ximin.xlake.backend.query.*;
 import io.github.ximin.xlake.backend.query.assignment.*;
-import io.github.ximin.xlake.backend.query.assignment.ArithmeticBase;
 import io.github.ximin.xlake.meta.ExprType;
-import io.github.ximin.xlake.meta.Expression;
-import io.github.ximin.xlake.meta.LiteralValue;
+import io.github.ximin.xlake.meta.PbExpression;
+import io.github.ximin.xlake.meta.PbLiteralValue;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 @Slf4j
 public final class ProtoExpressionSerializer implements ExpressionSerializer {
@@ -35,10 +49,10 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         return fromBytes(bytes);
     }
 
-    public static Expression toProto(io.github.ximin.xlake.backend.query.Expression expr) {
+    public static PbExpression toProto(io.github.ximin.xlake.backend.query.Expression expr) {
         if (expr == null) return null;
 
-        var builder = Expression.newBuilder()
+        var builder = PbExpression.newBuilder()
                 .setExprType(toProtoExprType(expr.getType()));
 
         switch (expr) {
@@ -102,7 +116,7 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         return builder.build();
     }
 
-    public static io.github.ximin.xlake.backend.query.Expression fromProto(Expression proto) {
+    public static io.github.ximin.xlake.backend.query.Expression fromProto(PbExpression proto) {
         if (proto == null) return null;
 
         ExprType type = proto.getExprType();
@@ -146,7 +160,7 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
 
     public static io.github.ximin.xlake.backend.query.Expression fromBytes(byte[] data) {
         try {
-            return fromProto(Expression.parseFrom(data));
+            return fromProto(PbExpression.parseFrom(data));
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize Expression", e);
         }
@@ -183,9 +197,9 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         };
     }
 
-    private static LiteralValue toProtoLiteral(Literal literal) {
+    private static PbLiteralValue toProtoLiteral(Literal literal) {
         Comparable value = literal.getValue();
-        var builder = LiteralValue.newBuilder();
+        var builder = PbLiteralValue.newBuilder();
         if (value == null) {
             return builder.build();
         }
@@ -208,7 +222,7 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
     }
 
     @SuppressWarnings("unchecked")
-    private static <T> T fromProtoLiteralValue(LiteralValue literal) {
+    private static <T> T fromProtoLiteralValue(PbLiteralValue literal) {
         return switch (literal.getValueCase()) {
             case BOOL_VAL -> (T) Boolean.valueOf(literal.getBoolVal());
             case INT32_VAL -> (T) Integer.valueOf(literal.getInt32Val());
@@ -221,24 +235,24 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         };
     }
 
-    private static Literal fromProtoLiteral(LiteralValue proto) {
+    private static Literal fromProtoLiteral(PbLiteralValue proto) {
         return new Literal(fromProtoLiteralValue(proto));
     }
 
-    private static List<io.github.ximin.xlake.backend.query.Expression> fromProtoList(List<Expression> list) {
+    private static List<io.github.ximin.xlake.backend.query.Expression> fromProtoList(List<PbExpression> list) {
         List<io.github.ximin.xlake.backend.query.Expression> result = new ArrayList<>();
-        for (Expression expr : list) {
+        for (PbExpression expr : list) {
             result.add(fromProto(expr));
         }
         return result;
     }
 
-    private static io.github.ximin.xlake.backend.query.Expression fromProtoSingle(List<Expression> list) {
+    private static io.github.ximin.xlake.backend.query.Expression fromProtoSingle(List<PbExpression> list) {
         if (list.isEmpty()) return null;
         return fromProto(list.getFirst());
     }
 
-    private static BinaryComparison fromBinaryComparison(ExprType type, List<Expression> children) {
+    private static BinaryComparison fromBinaryComparison(ExprType type, List<PbExpression> children) {
         if (children.size() < 2) {
             throw new IllegalArgumentException("Binary comparison needs 2 children");
         }
@@ -261,14 +275,14 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         BinaryComparison create(io.github.ximin.xlake.backend.query.Expression left, io.github.ximin.xlake.backend.query.Expression right);
     }
 
-    private static BinaryComparison fromBinaryComparisonOp(BiExprConstructor ctor, List<Expression> children) {
+    private static BinaryComparison fromBinaryComparisonOp(BiExprConstructor ctor, List<PbExpression> children) {
         if (children.size() < 2) {
             throw new IllegalArgumentException("Binary operation needs 2 children");
         }
         return ctor.create(fromProto(children.get(0)), fromProto(children.get(1)));
     }
 
-    private static io.github.ximin.xlake.backend.query.Expression fromIn(List<Expression> children, boolean negated) {
+    private static io.github.ximin.xlake.backend.query.Expression fromIn(List<PbExpression> children, boolean negated) {
         if (children.isEmpty()) return null;
         var column = fromProto(children.get(0));
         Set<Comparable> values = new HashSet<>();
@@ -281,7 +295,7 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         return negated ? new NotIn(column, values) : new In(column, values);
     }
 
-    private static Between fromBetween(List<Expression> children) {
+    private static Between fromBetween(List<PbExpression> children) {
         if (children.size() < 3) {
             throw new IllegalArgumentException("Between needs 3 children");
         }
@@ -292,7 +306,7 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         );
     }
 
-    private static Like fromLike(List<Expression> children, Map<String, String> metadata) {
+    private static Like fromLike(List<PbExpression> children, Map<String, String> metadata) {
         if (children.size() < 2) {
             throw new IllegalArgumentException("Like needs at least 2 children");
         }
@@ -302,9 +316,9 @@ public final class ProtoExpressionSerializer implements ExpressionSerializer {
         return new Like(column, pattern, caseSensitive);
     }
 
-    private static Assignment fromArithmetic(ExprType type, Expression proto) {
+    private static Assignment fromArithmetic(ExprType type, PbExpression proto) {
         String targetColumn = proto.getMetadataOrDefault("target_column", "");
-        List<Expression> children = proto.getChildrenList();
+        List<PbExpression> children = proto.getChildrenList();
         if (children.size() < 2) {
             throw new IllegalArgumentException("Arithmetic needs 2 operand children");
         }

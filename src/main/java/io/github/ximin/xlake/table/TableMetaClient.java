@@ -19,38 +19,29 @@
  */
 package io.github.ximin.xlake.table;
 
-import io.github.ximin.xlake.table.schema.Schema;
+import io.github.ximin.xlake.meta.PbOperationResult;
+import io.github.ximin.xlake.meta.PbTableMetadata;
+import io.github.ximin.xlake.meta.PbTableOperation;
 
-// 表的静态信息在对象初始化的时候渲染出来，在TableOp中提供和meta层的修改交互。
-public class DefaultTable implements XlakeTable {
+import java.util.List;
 
-    @Override
-    public String name() {
-        return "";
-    }
+public interface TableMetaClient extends AutoCloseable {
 
-    @Override
-    public Schema schema() {
-        return null;
-    }
+    void createTable(PbTableMetadata metadata);
 
-    @Override
-    public Snapshot currentSnapshot() {
-        return null;
-    }
+    void dropTable(String tableName);
 
-    @Override
-    public Snapshot snapshot(long snapshotId) {
-        return null;
-    }
+    PbOperationResult alterTable(PbTableOperation operation);
+
+    PbOperationResult commitOperations(String tableName, long commitId, List<PbTableOperation> operations);
+
+    void refreshTable(String tableName);
+
+    void abortTransaction(String tableName, long transactionId);
+
+    PbTableMetadata getTableMetadata(String tableName);
 
     @Override
-    public Iterable<Snapshot> snapshots() {
-        return null;
-    }
-
-    @Override
-    public String uniqId() {
-        return "";
+    default void close() {
     }
 }

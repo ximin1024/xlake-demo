@@ -21,136 +21,33 @@ package io.github.ximin.xlake.table.op;
 
 import java.util.Optional;
 
-public sealed interface OpResult permits
-        OpResult.Failure,
-        OpResult.Success {
+public interface OpResult {
 
-    boolean isSuccess();
+    boolean success();
 
-    Optional<String> getMessage();
-
-    Optional<Long> getCommitId();
-
-    <T> Optional<T> getData(Class<T> dataType);
-
-    record Success(String message, Long commitId, Object data) implements OpResult {
-        public Success {
-            commitId = commitId != null ? commitId : -1L;
-            message = message != null ? message : "Operation completed successfully";
-        }
-
-        public Success(String message) {
-            this(message, null, null);
-        }
-
-        public Success() {
-            this(null, null, null);
-        }
-
-        @Override
-        public boolean isSuccess() {
-            return true;
-        }
-
-        @Override
-        public Optional<String> getMessage() {
-            return Optional.ofNullable(message);
-        }
-
-        @Override
-        public Optional<Long> getCommitId() {
-            return Optional.ofNullable(commitId);
-        }
-
-        @Override
-        @SuppressWarnings("unchecked")
-        public <T> Optional<T> getData(Class<T> dataType) {
-            if (data == null) {
-                return Optional.empty();
-            }
-            if (dataType.isInstance(data)) {
-                return Optional.of((T) data);
-            }
-            return Optional.empty();
-        }
+    default boolean isSuccess() {
+        return success();
     }
 
-    record Failure(String message, String errorCode, Throwable cause, Long commitId) implements OpResult {
-        public Failure {
-            if (message == null && cause != null) {
-                message = cause.getMessage();
-            }
-            if (message == null) {
-                message = "Operation failed";
-            }
-        }
+    Optional<String> message();
 
-        public Failure(String message) {
-            this(message, null, null, null);
-        }
+    Optional<Throwable> error();
 
-        public Failure(String message, Throwable cause) {
-            this(message, null, cause, null);
-        }
+    long timestamp();
 
-        public Failure(String message, String errorCode) {
-            this(message, errorCode, null, null);
-        }
-
-        @Override
-        public boolean isSuccess() {
-            return false;
-        }
-
-        @Override
-        public Optional<String> getMessage() {
-            return Optional.of(message);
-        }
-
-        @Override
-        public Optional<Long> getCommitId() {
-            return Optional.ofNullable(commitId);
-        }
-
-        @Override
-        public <T> Optional<T> getData(Class<T> dataType) {
-            return Optional.empty();
-        }
-
-        public Optional<String> getErrorCode() {
-            return Optional.ofNullable(errorCode);
-        }
-
-        public Optional<Throwable> getCause() {
-            return Optional.ofNullable(cause);
-        }
+    static <T extends OpResult> T success(T result) {
+        return result;
     }
 
-    static OpResult success() {
-        return new Success();
+    static Failure failure(String msg) {
+        return new Failure(msg, null);
     }
 
-    static OpResult success(String message) {
-        return new Success(message);
+    static Failure failure(Throwable cause) {
+        return new Failure(cause.getMessage(), cause);
     }
 
-    static OpResult success(String message, Long commitId) {
-        return new Success(message, commitId, null);
-    }
-
-    static <T> OpResult success(String message, Long commitId, T data) {
-        return new Success(message, commitId, data);
-    }
-
-    static OpResult failure(String message) {
-        return new Failure(message);
-    }
-
-    static OpResult failure(String message, Throwable cause) {
-        return new Failure(message, cause);
-    }
-
-    static OpResult failure(String message, String errorCode) {
-        return new Failure(message, errorCode);
+    static Failure failure(String msg, Throwable cause) {
+        return new Failure(msg, cause);
     }
 }

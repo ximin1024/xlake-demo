@@ -7,9 +7,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
+ * 
  *      http://www.apache.org/licenses/LICENSE-2.0
- *
+ * 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,30 +19,63 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.backend.query.serializer.ProtoExpressionSerializer;
+import io.github.ximin.xlake.meta.PbExpression;
+
 import java.io.Serializable;
 import java.util.Map;
 import java.util.Set;
 
 public interface Expression extends Serializable {
 
-    // todo use map temporarily，a custom row or record object needed
+    // todo 暂时用map替代，实际需要使用自定义row对象
     boolean evaluate(Map<String, Comparable> row);
 
+    /**
+     * 获取表达式类型
+     */
     ExpressionType getType();
 
+    /**
+     * 获取所有引用的列
+     */
     Set<String> getReferencedColumns();
 
+    /**
+     * 表达式简化
+     */
     Expression simplify();
 
+    /**
+     * 表达式是否总是为真
+     */
     default boolean alwaysTrue() {
         return false;
     }
 
+    /**
+     * 表达式是否总是为假
+     */
     default boolean alwaysFalse() {
         return false;
     }
 
+    /**
+     * 表达式序列化为字符串
+     */
+    String toString();
+
+    /**
+     * 表达式深度复制
+     */
     Expression copy();
+
+    /**
+     * 转换为 Protobuf Expression（用于 Metastore 持久化）
+     */
+    default PbExpression toProtoConverted() {
+        return ProtoExpressionSerializer.toProto(this);
+    }
 
     enum ExpressionType implements Serializable {
         // 基础类型

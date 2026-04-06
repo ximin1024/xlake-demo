@@ -19,7 +19,53 @@
  */
 package io.github.ximin.xlake.table;
 
+import io.github.ximin.xlake.table.schema.Schema;
+import java.io.Serializable;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.Optional;
+
 public record Snapshot(
-        long id
-) {
+        long snapshotId,
+        String manifestList,
+        long timestampMillis,
+        String summary,
+        String operation,
+        Schema schema
+) implements Serializable {
+
+    public static final long UNASSIGNED_SNAPSHOT_ID = -1L;
+
+    public Snapshot {
+        Objects.requireNonNull(operation, "operation is required");
+    }
+
+    public static Snapshot of(long snapshotId, String operation) {
+        return new Snapshot(snapshotId, null, System.currentTimeMillis(), null, operation, null);
+    }
+
+    public static Snapshot of(long snapshotId, String operation, Schema schema) {
+        return new Snapshot(snapshotId, null, System.currentTimeMillis(), null, operation, schema);
+    }
+
+    public static Snapshot of(long snapshotId, String manifestList, long timestampMillis,
+                              String summary, String operation, Schema schema) {
+        return new Snapshot(snapshotId, manifestList, timestampMillis, summary, operation, schema);
+    }
+
+    public boolean hasManifestList() {
+        return manifestList != null && !manifestList.isEmpty();
+    }
+
+    public boolean hasSchema() {
+        return schema != null;
+    }
+
+    public Instant timestampInstant() {
+        return Instant.ofEpochMilli(timestampMillis);
+    }
+
+    public Optional<String> summaryOptional() {
+        return Optional.ofNullable(summary);
+    }
 }

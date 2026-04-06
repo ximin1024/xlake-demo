@@ -17,9 +17,10 @@
         <scala.binary.version>2.13</scala.binary.version>
         <scala.version>2.13.12</scala.version>
         <lmdb.version>0.9.0</lmdb.version>
+        <thrift.version>0.20.0</thrift.version>
         <parquet.version>1.16.0</parquet.version>
         <grpc.version>1.65.0</grpc.version>
-        <protobuf.version>4.28.3</protobuf.version>
+        <protobuf.version>3.25.3</protobuf.version>
         <protoc.version>${protobuf.version}</protoc.version>
     </properties>
 
@@ -48,6 +49,15 @@
             <artifactId>lmdbjava</artifactId>
             <version>${lmdb.version}</version>
         </dependency>
+
+        <!-- thrift (deprecated, replaced by gRPC) -->
+        <!--
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+            <version>${thrift.version}</version>
+        </dependency>
+        -->
 
         <!-- parquet -->
         <dependency>
@@ -129,6 +139,13 @@
             <groupId>io.grpc</groupId>
             <artifactId>grpc-stub</artifactId>
             <version>${grpc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>protoc-gen-grpc-java</artifactId>
+            <version>${grpc.version}</version>
+            <type>pom</type>
+            <scope>compile</scope>
         </dependency>
 
         <!-- 必须：javax.annotation（Java 11+ 不再内置） -->
@@ -212,6 +229,20 @@
     <build>
         <plugins>
 
+            <plugin>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+                <executions>
+                    <execution>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>detect</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
 <!--            <plugin>-->
 <!--                <groupId>net.alchim31.maven</groupId>-->
 <!--                <artifactId>scala-maven-plugin</artifactId>-->
@@ -248,10 +279,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.12.1</version>
+                <version>3.13.0</version>
                 <configuration>
-                    <source>21</source>
-                    <target>21</target>
+                    <!--                    <source>21</source>-->
+                    <!--                    <target>21</target>-->
+                    <release>21</release>
                     <compilerArgs>--enable-preview</compilerArgs>
                 </configuration>
                 <executions>
@@ -274,20 +306,6 @@
             </plugin>
 
             <plugin>
-                <groupId>kr.motd.maven</groupId>
-                <artifactId>os-maven-plugin</artifactId>
-                <version>1.7.1</version>
-                <executions>
-                    <execution>
-                        <phase>initialize</phase>
-                        <goals>
-                            <goal>detect</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
                 <groupId>org.xolstice.maven.plugins</groupId>
                 <artifactId>protobuf-maven-plugin</artifactId>
                 <version>0.6.1</version>
@@ -301,6 +319,7 @@
                     <pluginArtifact>
                         io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}
                     </pluginArtifact>
+                    <outputDirectory>${project.build.directory}/generated-sources/protobuf/java</outputDirectory>
                 </configuration>
                 <executions>
                     <execution>
@@ -311,8 +330,16 @@
                         </goals>
                     </execution>
                 </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>kr.motd.maven</groupId>
+                        <artifactId>os-maven-plugin</artifactId>
+                        <version>1.7.1</version>
+                    </dependency>
+                </dependencies>
             </plugin>
 
+            <!-- 将生成的源码加入编译路径 -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
@@ -353,9 +380,23 @@
                     <addJavaLicenseAfterPackage>false</addJavaLicenseAfterPackage>
                     <encoding>UTF-8</encoding>
                 </configuration>
-
-                <!-- 自动在 verify 阶段检查 header 是否存在 -->
                 <executions>
+                    <execution>
+                        <id>auto-add-license</id>
+                        <goals>
+                            <goal>update-file-header</goal>  <!-- 这个目标会自动添加 license -->
+                        </goals>
+                        <phase>process-sources</phase>  <!-- 在编译前执行 -->
+                        <configuration>
+                            <includes>
+                                <include>**/*.java</include>
+                                <include>**/*.xml</include>
+                                <include>**/*.properties</include>
+                                <include>**/*.proto</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                    <!-- 自动在 verify 阶段检查 header 是否存在 -->
                     <execution>
                         <id>check-license-header</id>
                         <goals>

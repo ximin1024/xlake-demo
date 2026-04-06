@@ -1,3 +1,22 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package io.github.ximin.xlake.metastore.ratis;
 
 import com.google.protobuf.ByteString;
@@ -50,9 +69,9 @@ public class Client implements AutoCloseable {
     }
 
     public void write(byte[] key, byte[] value) throws IOException {
-        var envelope = RaftOpEnvelope.newBuilder()
+        var envelope = PbRaftOpEnvelope.newBuilder()
                 .setOpType("PUT")
-                .setPayload(PutRequest.newBuilder()
+                .setPayload(PbPutRequest.newBuilder()
                         .setKey(ByteString.copyFrom(key))
                         .setValue(ByteString.copyFrom(value))
                         .build()
@@ -67,9 +86,9 @@ public class Client implements AutoCloseable {
     }
 
     public Optional<byte[]> read(byte[] key) throws IOException {
-        var envelope = RaftOpEnvelope.newBuilder()
+        var envelope = PbRaftOpEnvelope.newBuilder()
                 .setOpType("GET")
-                .setPayload(GetRequest.newBuilder()
+                .setPayload(PbGetRequest.newBuilder()
                         .setKey(ByteString.copyFrom(key))
                         .build()
                         .toByteString())
@@ -81,7 +100,7 @@ public class Client implements AutoCloseable {
             return Optional.empty();
         }
 
-        var response = GetResponse.parseFrom(
+        var response = PbGetResponse.parseFrom(
                 reply.getMessage().getContent().toByteArray());
         if (response.getValue().isEmpty()) {
             return Optional.empty();
@@ -90,9 +109,9 @@ public class Client implements AutoCloseable {
     }
 
     public void delete(byte[] key) throws IOException {
-        var envelope = RaftOpEnvelope.newBuilder()
+        var envelope = PbRaftOpEnvelope.newBuilder()
                 .setOpType("DELETE")
-                .setPayload(DeleteRequest.newBuilder()
+                .setPayload(PbDeleteRequest.newBuilder()
                         .setKey(ByteString.copyFrom(key))
                         .build()
                         .toByteString())
@@ -106,9 +125,9 @@ public class Client implements AutoCloseable {
     }
 
     public List<byte[]> scanByPrefix(byte[] prefix) throws IOException {
-        var envelope = RaftOpEnvelope.newBuilder()
+        var envelope = PbRaftOpEnvelope.newBuilder()
                 .setOpType("SCAN_PREFIX")
-                .setPayload(ScanPrefixRequest.newBuilder()
+                .setPayload(PbScanPrefixRequest.newBuilder()
                         .setPrefix(ByteString.copyFrom(prefix))
                         .build()
                         .toByteString())
@@ -120,10 +139,10 @@ public class Client implements AutoCloseable {
             return List.of();
         }
 
-        var response = ScanPrefixResponse.parseFrom(
+        var response = PbScanPrefixResponse.parseFrom(
                 reply.getMessage().getContent().toByteArray());
         return response.getValuesList().stream()
-                .map(ByteString::toByteArray)
+                .map(com.google.protobuf.ByteString::toByteArray)
                 .toList();
     }
 

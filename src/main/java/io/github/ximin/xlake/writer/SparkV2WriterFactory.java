@@ -17,26 +17,23 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.spark;
+package io.github.ximin.xlake.writer;
 
-import io.github.ximin.xlake.backend.writer.WriterFactory;
 import io.github.ximin.xlake.common.Config;
-import io.github.ximin.xlake.table.schema.Schema;
-import lombok.Builder;
-import org.apache.spark.sql.catalyst.InternalRow;
+import io.github.ximin.xlake.table.XlakeTable;
 import org.apache.spark.sql.connector.write.DataWriter;
 
-public class SparkWriterFactory extends WriterFactory<InternalRow> {
-    @Builder
-    public SparkWriterFactory(Schema schema,
-                              Config.WriteConf writeConf,
-                              long commitId,
-                              String tableIdentifier) {
-        super(schema, writeConf, commitId, tableIdentifier);
+public abstract class SparkV2WriterFactory<T> {
+
+    protected final Config.WriteConf writeConf;
+    protected final long commitId;
+    protected final XlakeTable table;
+
+    public SparkV2WriterFactory(Config.WriteConf writeConf, long commitId, XlakeTable table) {
+        this.writeConf = writeConf;
+        this.commitId = commitId;
+        this.table = table;
     }
 
-    @Override
-    public DataWriter<InternalRow> createWriter() {
-        return new SparkMmapDataWriter(schema, writeConf, commitId, tableIdentifier);
-    }
+    public abstract DataWriter<T> createWriter();
 }

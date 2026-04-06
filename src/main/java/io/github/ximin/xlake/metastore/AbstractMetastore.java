@@ -1,3 +1,22 @@
+/*-
+ * #%L
+ * xlake-demo
+ * %%
+ * Copyright (C) 2026 ximin1024
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package io.github.ximin.xlake.metastore;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -18,16 +37,16 @@ public abstract class AbstractMetastore implements Metastore {
     private static final String PREFIX_UPDATE = "update:";
     private static final String PREFIX_COMMIT = "commit:";
 
-    protected byte[] tableKey(String tableName) {
-        return (PREFIX_TABLE + tableName).getBytes(StandardCharsets.UTF_8);
+    protected byte[] tableKey(String catalog, String database, String table) {
+        return (PREFIX_TABLE + catalog + ":" + database + ":" + table).getBytes(StandardCharsets.UTF_8);
     }
 
-    protected byte[] snapshotKey(String tableName, long snapshotId) {
-        return (PREFIX_SNAPSHOT + tableName + ":" + snapshotId).getBytes(StandardCharsets.UTF_8);
+    protected byte[] snapshotKey(String catalog, String database, String table, long snapshotId) {
+        return (PREFIX_SNAPSHOT + catalog + ":" + database + ":" + table + ":" + snapshotId).getBytes(StandardCharsets.UTF_8);
     }
 
-    protected byte[] fileKey(String tableName, String filePath) {
-        return (PREFIX_FILE + tableName + ":" + filePath).getBytes(StandardCharsets.UTF_8);
+    protected byte[] fileKey(String catalog, String database, String table, String filePath) {
+        return (PREFIX_FILE + catalog + ":" + database + ":" + table + ":" + filePath).getBytes(StandardCharsets.UTF_8);
     }
 
     protected byte[] updateEntryKey(String entryId) {
@@ -47,87 +66,93 @@ public abstract class AbstractMetastore implements Metastore {
     protected abstract List<byte[]> kvScanByPrefix(byte[] prefix) throws IOException;
 
     @Override
-    public void createTable(TableMetadata metadata) throws IOException {
-        byte[] key = tableKey(metadata.getTableName());
+    public void createTable(PbTableMetadata metadata) throws IOException {
+        byte[] key = tableKey(
+                metadata.getIdentifier().getCatalog(),
+                metadata.getIdentifier().getDatabase(),
+                metadata.getIdentifier().getTable()
+        );
         Optional<byte[]> existing = kvGet(key);
         if (existing.isPresent()) {
-            throw new IllegalStateException("Table already exists: " + metadata.getTableName());
+            throw new IllegalStateException("Table already exists: " + metadata.getIdentifier().getTable());
         }
         kvPut(key, metadata.toByteArray());
-        log.info("Created table: {}", metadata.getTableName());
+        log.info("Created table: {}", metadata.getIdentifier().getTable());
     }
 
     @Override
-    public void dropTable(String tableName) throws IOException {
-        byte[] key = tableKey(tableName);
+    public void dropTable(String catalog, String database, String table) throws IOException {
+        byte[] key = tableKey(catalog, database, table);
         Optional<byte[]> existing = kvGet(key);
         if (existing.isEmpty()) {
-            throw new IllegalArgumentException("Table not found: " + tableName);
+            throw new IllegalArgumentException("Table not found: " + table);
         }
         kvDelete(key);
-        log.info("Dropped table: {}", tableName);
+        log.info("Dropped table: {}", table);
     }
 
     @Override
-    public Optional<TableMetadata> getTable(String tableName) throws IOException {
-        return kvGet(tableKey(tableName))
+    public Optional<PbTableMetadata> getTable(String catalog, String database, String table) throws IOException {
+        return kvGet(tableKey(catalog, database, table))
                 .map(bytes -> {
                     try {
-                        return TableMetadata.parseFrom(bytes);
+                        return PbTableMetadata.parseFrom(bytes);
                     } catch (InvalidProtocolBufferException e) {
-                        throw new RuntimeException("Failed to parse TableMetadata for: " + tableName, e);
+                        throw new RuntimeException("Failed to parse PbTableMetadata for: " + table, e);
                     }
                 });
     }
 
     @Override
-    public void alterTable(String tableName, Schema newSchema) throws IOException {
-        Optional<TableMetadata> existingOpt = getTable(tableName);
+    public void alterTable(String catalog, String database, String table, PbSchema newSchema) throws IOException {
+        Optional<PbTableMetadata> existingOpt = getTable(catalog, database, table);
         if (existingOpt.isEmpty()) {
-            throw new IllegalArgumentException("Table not found: " + tableName);
+            throw new IllegalArgumentException("Table not found: " + table);
         }
-        TableMetadata updated = existingOpt.get().toBuilder()
+        PbTableMetadata updated = existingOpt.get().toBuilder()
                 .setSchema(newSchema)
                 .build();
-        kvPut(tableKey(tableName), updated.toByteArray());
-        log.info("Altered table schema: {}", tableName);
+        kvPut(tableKey(catalog, database, table), updated.toByteArray());
+        log.info("Altered table schema: {}", table);
     }
 
     @Override
-    public List<String> listTables() throws IOException {
-        return kvScanByPrefix(PREFIX_TABLE.getBytes(StandardCharsets.UTF_8)).stream()
-                .map(bytes -> {
-                    try {
-                        return TableMetadata.parseFrom(bytes).getTableName();
-                    } catch (InvalidProtocolBufferException e) {
-                        log.warn("Failed to parse TableMetadata during listTables", e);
-                        return null;
-                    }
-                })
-                .toList();
-    }
-
-    @Override
-    public Optional<Snapshot> getSnapshot(String tableName, long snapshotId) throws IOException {
-        return kvGet(snapshotKey(tableName, snapshotId))
-                .map(bytes -> {
-                    try {
-                        return Snapshot.parseFrom(bytes);
-                    } catch (InvalidProtocolBufferException e) {
-                        throw new RuntimeException("Failed to parse Snapshot", e);
-                    }
-                });
-    }
-
-    @Override
-    public List<Snapshot> getSnapshots(String tableName) throws IOException {
-        byte[] prefix = (PREFIX_SNAPSHOT + tableName + ":").getBytes(StandardCharsets.UTF_8);
+    public List<String> listTables(String catalog, String database) throws IOException {
+        byte[] prefix = (PREFIX_TABLE + catalog + ":" + database + ":").getBytes(StandardCharsets.UTF_8);
         return kvScanByPrefix(prefix).stream()
                 .map(bytes -> {
                     try {
-                        return Snapshot.parseFrom(bytes);
+                        return PbTableMetadata.parseFrom(bytes).getIdentifier().getTable();
                     } catch (InvalidProtocolBufferException e) {
-                        log.warn("Failed to parse Snapshot for table: {}", tableName, e);
+                        log.warn("Failed to parse PbTableMetadata during listTables", e);
+                        return (String) null;
+                    }
+                })
+                .filter(s -> s != null)
+                .toList();
+    }
+
+    @Override
+    public Optional<PbSnapshot> getSnapshot(String catalog, String database, String table, long snapshotId) throws IOException {
+        return kvGet(snapshotKey(catalog, database, table, snapshotId))
+                .map(bytes -> {
+                    try {
+                        return PbSnapshot.parseFrom(bytes);
+                    } catch (InvalidProtocolBufferException e) {
+                        throw new RuntimeException("Failed to parse PbSnapshot", e);
+                    }
+                });
+    }
+
+    @Override
+    public List<PbSnapshot> getSnapshots(String catalog, String database, String table) throws IOException {
+        byte[] prefix = (PREFIX_SNAPSHOT + catalog + ":" + database + ":" + table + ":").getBytes(StandardCharsets.UTF_8);
+        return kvScanByPrefix(prefix).stream()
+                .map(bytes -> {
+                    try {
+                        return PbSnapshot.parseFrom(bytes);
+                    } catch (InvalidProtocolBufferException e) {
+                        log.warn("Failed to parse PbSnapshot for table: {}", table, e);
                         return null;
                     }
                 })
@@ -135,37 +160,37 @@ public abstract class AbstractMetastore implements Metastore {
     }
 
     @Override
-    public long createSnapshot(String tableName, String operation, String summary) throws IOException {
-        Optional<TableMetadata> metaOpt = getTable(tableName);
+    public long createSnapshot(String catalog, String database, String table, String operation, String summary) throws IOException {
+        Optional<PbTableMetadata> metaOpt = getTable(catalog, database, table);
         if (metaOpt.isEmpty()) {
-            throw new IllegalArgumentException("Table not found: " + tableName);
+            throw new IllegalArgumentException("Table not found: " + table);
         }
-        TableMetadata meta = metaOpt.get();
+        PbTableMetadata meta = metaOpt.get();
 
         long newSnapshotId = meta.getCurrentSnapshot().getSnapshotId() + 1;
-        Snapshot newSnapshot = Snapshot.newBuilder()
+        PbSnapshot newSnapshot = PbSnapshot.newBuilder()
                 .setSnapshotId(newSnapshotId)
                 .setTimestamp(System.currentTimeMillis())
                 .setOperation(operation)
-                .setSummary(summary)
+                .setSummary(summary != null ? summary : "")
                 .setSchema(meta.getSchema())
                 .build();
 
-        kvPut(snapshotKey(tableName, newSnapshotId), newSnapshot.toByteArray());
+        kvPut(snapshotKey(catalog, database, table, newSnapshotId), newSnapshot.toByteArray());
 
-        TableMetadata updatedMeta = meta.toBuilder()
+        PbTableMetadata updatedMeta = meta.toBuilder()
                 .setCurrentSnapshot(newSnapshot)
                 .build();
-        kvPut(tableKey(tableName), updatedMeta.toByteArray());
+        kvPut(tableKey(catalog, database, table), updatedMeta.toByteArray());
 
-        log.info("Created snapshot {} for table {}: {}", newSnapshotId, tableName, operation);
+        log.info("Created snapshot {} for table {}: {}", newSnapshotId, table, operation);
         return newSnapshotId;
     }
 
     @Override
-    public long beginCommit(List<TableOperation> operations) throws IOException {
+    public long beginCommit(List<PbTableOperation> operations) throws IOException {
         long commitId = System.currentTimeMillis();
-        CommitRequest request = CommitRequest.newBuilder()
+        PbCommitRequest request = PbCommitRequest.newBuilder()
                 .setCommitId(commitId)
                 .addAllOperations(operations)
                 .build();
@@ -182,9 +207,9 @@ public abstract class AbstractMetastore implements Metastore {
             return false;
         }
         try {
-            CommitRequest request = CommitRequest.parseFrom(data.get());
+            PbCommitRequest request = PbCommitRequest.parseFrom(data.get());
 
-            for (TableOperation op : request.getOperationsList()) {
+            for (PbTableOperation op : request.getOperationsList()) {
                 applyOperation(op);
             }
 
@@ -192,7 +217,7 @@ public abstract class AbstractMetastore implements Metastore {
             log.info("Committed: {}", commitId);
             return true;
         } catch (InvalidProtocolBufferException e) {
-            log.error("Failed to parse CommitRequest for: {}", commitId, e);
+            log.error("Failed to parse PbCommitRequest for: {}", commitId, e);
             return false;
         }
     }
@@ -208,22 +233,26 @@ public abstract class AbstractMetastore implements Metastore {
         return true;
     }
 
-    private void applyOperation(TableOperation op) throws IOException {
+    private void applyOperation(PbTableOperation op) throws IOException {
         switch (op.getOperationType()) {
             case "CREATE_TABLE" -> {
                 if (op.hasSchema()) {
-                    TableMetadata meta = TableMetadata.newBuilder()
-                            .setTableName(op.getTableName())
+                    PbTableMetadata meta = PbTableMetadata.newBuilder()
+                            .setIdentifier(PbTableIdentifier.newBuilder()
+                                    .setCatalog("default")
+                                    .setDatabase("default")
+                                    .setTable(op.getTableName())
+                                    .build())
                             .setSchema(op.getSchema())
-                            .setCurrentSnapshot(Snapshot.newBuilder().setSnapshotId(0).build())
+                            .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                             .build();
-                    kvPut(tableKey(op.getTableName()), meta.toByteArray());
+                    kvPut(tableKey("default", "default", op.getTableName()), meta.toByteArray());
                 }
             }
-            case "DROP_TABLE" -> kvDelete(tableKey(op.getTableName()));
+            case "DROP_TABLE" -> kvDelete(tableKey("default", "default", op.getTableName()));
             case "ALTER_SCHEMA" -> {
                 if (op.hasSchema()) {
-                    alterTable(op.getTableName(), op.getSchema());
+                    alterTable("default", "default", op.getTableName(), op.getSchema());
                 }
             }
             default -> log.warn("Unknown operation type: {}", op.getOperationType());
@@ -231,31 +260,31 @@ public abstract class AbstractMetastore implements Metastore {
     }
 
     @Override
-    public void putFile(FileMetadata fileMeta) throws IOException {
-        kvPut(fileKey(fileMeta.getTableName(), fileMeta.getFilePath()), fileMeta.toByteArray());
+    public void putFile(PbFileMetadata fileMeta) throws IOException {
+        kvPut(fileKey(fileMeta.getTableName(), "", "", fileMeta.getFilePath()), fileMeta.toByteArray());
     }
 
     @Override
-    public Optional<FileMetadata> getFile(String tableName, String filePath) throws IOException {
-        return kvGet(fileKey(tableName, filePath))
+    public Optional<PbFileMetadata> getFile(String tableName, String filePath) throws IOException {
+        return kvGet(fileKey(tableName, "", "", filePath))
                 .map(bytes -> {
                     try {
-                        return FileMetadata.parseFrom(bytes);
+                        return PbFileMetadata.parseFrom(bytes);
                     } catch (InvalidProtocolBufferException e) {
-                        throw new RuntimeException("Failed to parse FileMetadata", e);
+                        throw new RuntimeException("Failed to parse PbFileMetadata", e);
                     }
                 });
     }
 
     @Override
-    public List<FileMetadata> listFiles(String tableName) throws IOException {
+    public List<PbFileMetadata> listFiles(String tableName) throws IOException {
         byte[] prefix = (PREFIX_FILE + tableName + ":").getBytes(StandardCharsets.UTF_8);
         return kvScanByPrefix(prefix).stream()
                 .map(bytes -> {
                     try {
-                        return FileMetadata.parseFrom(bytes);
+                        return PbFileMetadata.parseFrom(bytes);
                     } catch (InvalidProtocolBufferException e) {
-                        log.warn("Failed to parse FileMetadata for table: {}", tableName, e);
+                        log.warn("Failed to parse PbFileMetadata for table: {}", tableName, e);
                         return null;
                     }
                 })
@@ -263,7 +292,7 @@ public abstract class AbstractMetastore implements Metastore {
     }
 
     @Override
-    public List<FileMetadata> listFiles(String tableName, int level) throws IOException {
+    public List<PbFileMetadata> listFiles(String tableName, int level) throws IOException {
         return listFiles(tableName).stream()
                 .filter(f -> f.getLevel() == level)
                 .toList();
@@ -271,38 +300,38 @@ public abstract class AbstractMetastore implements Metastore {
 
     @Override
     public void removeFile(String tableName, String filePath) throws IOException {
-        kvDelete(fileKey(tableName, filePath));
+        kvDelete(fileKey(tableName, "", "", filePath));
     }
 
     @Override
-    public void putUpdateEntry(UpdateEntry entry) throws IOException {
+    public void putUpdateEntry(PbUpdateEntry entry) throws IOException {
         kvPut(updateEntryKey(entry.getEntryId()), entry.toByteArray());
     }
 
     @Override
-    public Optional<UpdateEntry> getUpdateEntry(String entryId) throws IOException {
+    public Optional<PbUpdateEntry> getUpdateEntry(String entryId) throws IOException {
         return kvGet(updateEntryKey(entryId))
                 .map(bytes -> {
                     try {
-                        return UpdateEntry.parseFrom(bytes);
+                        return PbUpdateEntry.parseFrom(bytes);
                     } catch (InvalidProtocolBufferException e) {
-                        throw new RuntimeException("Failed to parse UpdateEntry", e);
+                        throw new RuntimeException("Failed to parse PbUpdateEntry", e);
                     }
                 });
     }
 
     @Override
-    public List<UpdateEntry> getUpdateEntries(String tableName) throws IOException {
+    public List<PbUpdateEntry> getUpdateEntries(String tableName) throws IOException {
         return kvScanByPrefix(PREFIX_UPDATE.getBytes(StandardCharsets.UTF_8)).stream()
                 .map(bytes -> {
                     try {
-                        UpdateEntry entry = UpdateEntry.parseFrom(bytes);
+                        PbUpdateEntry entry = PbUpdateEntry.parseFrom(bytes);
                         if (entry.getTableName().equals(tableName)) {
                             return entry;
                         }
                         return null;
                     } catch (InvalidProtocolBufferException e) {
-                        log.warn("Failed to parse UpdateEntry", e);
+                        log.warn("Failed to parse PbUpdateEntry", e);
                         return null;
                     }
                 })

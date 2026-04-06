@@ -19,5 +19,76 @@
  */
 package io.github.ximin.xlake.table.op;
 
-public interface CreateTable {
+import io.github.ximin.xlake.metastore.Metastore;
+import io.github.ximin.xlake.table.XlakeTable;
+import io.github.ximin.xlake.table.TableMeta;
+import io.github.ximin.xlake.table.ProtoTableMetaConverter;
+
+import java.util.function.Supplier;
+
+public class CreateTable {
+    private final static String TYPE = "CREATE_TABLE";
+    private final XlakeTable table;
+    private final Supplier<Metastore> metastoreSupplier;
+    private final TableMeta tableMeta;
+
+    private CreateTable(XlakeTable table, Supplier<Metastore> metastoreSupplier, TableMeta tableMeta) {
+        this.table = table;
+        this.metastoreSupplier = metastoreSupplier;
+        this.tableMeta = tableMeta;
+    }
+
+    public DdlResult exec() {
+        try {
+            Metastore metastore = metastoreSupplier.get();
+            var pbMeta = ProtoTableMetaConverter.toPb(tableMeta);
+            metastore.createTable(pbMeta);
+            return DdlResult.CreateResult.ok(table.name());
+        } catch (Exception e) {
+            return new DdlResult.CreateResult(false, "Create table failed: " + e.getMessage(),
+                    e, System.currentTimeMillis(), table.name());
+        }
+    }
+
+    public String type() {
+        return TYPE;
+    }
+
+    public static CreateTableBuilder builder() {
+        return new CreateTableBuilder();
+    }
+
+    public static class CreateTableBuilder {
+        private XlakeTable table;
+        private Supplier<Metastore> metastoreSupplier;
+        private TableMeta tableMeta;
+
+        public CreateTableBuilder table(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
+
+        public CreateTableBuilder metastoreSupplier(Supplier<Metastore> metastoreSupplier) {
+            this.metastoreSupplier = metastoreSupplier;
+            return this;
+        }
+
+        public CreateTableBuilder tableMeta(TableMeta tableMeta) {
+            this.tableMeta = tableMeta;
+            return this;
+        }
+
+        public CreateTable build() {
+            if (table == null) {
+                throw new IllegalStateException("table must be set");
+            }
+            if (tableMeta == null) {
+                throw new IllegalStateException("tableMeta must be set");
+            }
+            if (metastoreSupplier == null) {
+                throw new IllegalStateException("metastoreSupplier must be set");
+            }
+            return new CreateTable(table, metastoreSupplier, tableMeta);
+        }
+    }
 }

@@ -5,39 +5,37 @@ package nebulake.meta;
 option java_package = "io.github.ximin.xlake.meta";
 option java_multiple_files = true;
 
-import "schema.proto";
-
 // ==================== Ratis Raft 日志信封 ====================
 // 所有通过 Ratis 传输的操作都封装在这个 Envelope 中
 
-message RaftOpEnvelope {
+message PbRaftOpEnvelope {
   string op_type = 1;  // PUT | DELETE | GET | SCAN_PREFIX
   bytes payload = 2;   // 对应操作的 protobuf 序列化
 }
 
 // ==================== Ratis KV 原语（内部使用）====================
 
-message PutRequest {
+message PbPutRequest {
   bytes key = 1;
   bytes value = 2;
 }
 
-message GetRequest {
+message PbGetRequest {
   bytes key = 1;
 }
 
-message GetResponse {
+message PbGetResponse {
   bytes value = 1;
 }
 
-message DeleteRequest {
+message PbDeleteRequest {
   bytes key = 1;
 }
 
-message ScanPrefixRequest {
+message PbScanPrefixRequest {
   bytes prefix = 1;
 }
 
-message ScanPrefixResponse {
+message PbScanPrefixResponse {
   repeated bytes values = 1;
 }
