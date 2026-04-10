@@ -19,14 +19,14 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.GrpcTableMetaClient;
-import io.github.ximin.xlake.table.TableMetaClient;
+import io.github.ximin.xlake.metastore.client.GrpcTableMetaClient;
+import io.github.ximin.xlake.metastore.client.TableMetaClient;
 import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.function.Supplier;
 
 public class Refresh extends RpcOp {
-    private final static String TYPE = "REFRESH";
+    private final static OpType TYPE = OpType.REFRESH;
 
     private Refresh(XlakeTable table, Supplier<TableMetaClient> clientSupplier) {
         super(table, clientSupplier);
@@ -36,13 +36,13 @@ public class Refresh extends RpcOp {
     public OpResult exec() {
         try {
             long snapshotIdBefore = table.dynamicInfo().currentSnapshotId();
-            
+
             getClient().refreshTable(table.name());
-            
+
             table.dynamicInfo().refresh();
-            
+
             long snapshotIdAfter = table.dynamicInfo().currentSnapshotId();
-            
+
             return DdlResult.RefreshResult.ok(snapshotIdBefore, snapshotIdAfter);
         } catch (Exception e) {
             return RpcOp.Result.error("Refresh failed: " + e.getMessage(), e);
@@ -50,7 +50,7 @@ public class Refresh extends RpcOp {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -58,13 +58,17 @@ public class Refresh extends RpcOp {
         return new RefreshBuilder();
     }
 
-    public static class RefreshBuilder {
+    public static class RefreshBuilder implements TableOpBuilder<OpResult, Refresh> {
         private XlakeTable table;
         private Supplier<TableMetaClient> clientSupplier;
 
-        public RefreshBuilder tableName(XlakeTable table) {
+        public RefreshBuilder withTable(XlakeTable table) {
             this.table = table;
             return this;
+        }
+
+        public RefreshBuilder tableName(XlakeTable table) {
+            return withTable(table);
         }
 
         public RefreshBuilder clientSupplier(Supplier<TableMetaClient> clientSupplier) {
@@ -72,6 +76,12 @@ public class Refresh extends RpcOp {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Refresh build() {
             if (table == null) {
                 throw new IllegalStateException("tableName must be set");

@@ -21,9 +21,12 @@ package io.github.ximin.xlake.table.op;
 
 import java.util.Optional;
 
-public interface Write extends Op {
+public interface Write extends Op<Write.Result> {
 
     long writeSize();
+
+    @Override
+    Result exec();
 
     final class Result implements OpResult {
         private final boolean success;

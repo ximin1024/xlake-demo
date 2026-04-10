@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
@@ -31,18 +33,17 @@ public record In(Expression column, Set<Comparable> values) implements Expressio
         this.values = new HashSet<>(values);
     }
 
-    @Override
-    public boolean evaluate(Map<String, Comparable> row) {
+    public boolean evaluate(RecordView row) {
         if (!(column instanceof ColumnRef)) {
             return false;
         }
 
         String columnName = ((ColumnRef) column).columnName();
-        if (!row.containsKey(columnName)) {
+        if (!row.hasField(columnName)) {
             return false;
         }
 
-        Comparable rowValue = row.get(columnName);
+        Comparable rowValue = row.comparableField(columnName);
         return rowValue != null && values.contains(rowValue);
     }
 

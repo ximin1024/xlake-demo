@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +35,7 @@ public class Not implements LogicalExpression {
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
+    public boolean evaluate(RecordView row) {
         return !child.evaluate(row);
     }
 

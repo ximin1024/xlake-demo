@@ -23,30 +23,35 @@ import io.github.ximin.xlake.backend.query.Expression;
 import io.github.ximin.xlake.backend.query.ExpressionUtils;
 import lombok.Getter;
 
+import java.io.Serializable;
 import java.util.*;
 
-public class UpdateEntry {
+public class UpdateEntry implements Serializable {
     @Getter
-    private final Expression condition;
+    private final String tableName;
+    @Getter
+    private final Expression predicate;
+    // 这里存具体的值，而不是赋值语句，是方便进行值的校验（类型），comparable，也可以定义一个valueRef，来表示值
     private final Map<String, Comparable> updates;
     @Getter
     private final long timestamp;
     @Getter
     private final String entryId;
 
-    public UpdateEntry(Expression condition, Map<String, Comparable> updates) {
-        this.condition = condition;
+    public UpdateEntry(String tableName, Expression predicate, Map<String, Comparable> updates) {
+        this.tableName = tableName;
+        this.predicate = predicate;
         this.updates = new HashMap<>(updates);
         this.timestamp = System.currentTimeMillis();
         this.entryId = UUID.randomUUID().toString();
     }
 
     public boolean isPrimaryKeyUpdate(Set<String> primaryKeys) {
-        return ExpressionUtils.isPrimaryKeyEquals(condition, primaryKeys);
+        return ExpressionUtils.isPrimaryKeyEquals(predicate, primaryKeys);
     }
 
     public Map<String, Comparable> getPrimaryKeyValues(Set<String> primaryKeys) {
-        return ExpressionUtils.extractPrimaryKeyValues(condition, primaryKeys);
+        return ExpressionUtils.extractPrimaryKeyValues(predicate, primaryKeys);
     }
 
     public Map<String, Comparable> getUpdates() {
@@ -55,6 +60,6 @@ public class UpdateEntry {
 
     @Override
     public String toString() {
-        return String.format("UPDATE SET %s WHERE %s", updates, condition);
+        return String.format("UPDATE SET %s WHERE %s", updates, predicate);
     }
 }

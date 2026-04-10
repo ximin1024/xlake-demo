@@ -28,18 +28,6 @@ public class Contains extends BinaryComparison {
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        Comparable leftVal = evaluateSide(left, row);
-        Comparable rightVal = evaluateSide(right, row);
-
-        if (leftVal == null || rightVal == null) {
-            return false;
-        }
-
-        return leftVal.toString().contains(rightVal.toString());
-    }
-
-    @Override
     protected boolean compare(Comparable left, Comparable right) {
         return left.toString().contains(right.toString());
     }

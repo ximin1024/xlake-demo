@@ -21,6 +21,7 @@ package io.github.ximin.xlake.table;
 
 import com.google.protobuf.Timestamp;
 import io.github.ximin.xlake.meta.*;
+import io.github.ximin.xlake.table.schema.XlakeType;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -167,7 +168,7 @@ public final class ProtoTableMetaConverter {
         return new io.github.ximin.xlake.table.schema.StructType(fields);
     }
 
-    private static PbDataType toPbDataType(io.github.ximin.xlake.table.schema.XlakeType type) {
+    private static PbDataType toPbDataType(XlakeType type) {
         PbDataType.Builder builder = PbDataType.newBuilder()
                 .setIsNullable(type.isNullable());
 
@@ -181,7 +182,7 @@ public final class ProtoTableMetaConverter {
         return builder.build();
     }
 
-    private static io.github.ximin.xlake.table.schema.XlakeType fromPbDataType(PbDataType pb) {
+    private static XlakeType fromPbDataType(PbDataType pb) {
         boolean nullable = pb.getIsNullable();
 
         return switch (pb.getPrimitiveType()) {
@@ -191,7 +192,8 @@ public final class ProtoTableMetaConverter {
             case INT64 -> io.github.ximin.xlake.table.schema.Types.int64(nullable);
             case FLOAT32 -> io.github.ximin.xlake.table.schema.Types.float32(nullable);
             case FLOAT64 -> io.github.ximin.xlake.table.schema.Types.float64(nullable);
-            case DECIMAL -> io.github.ximin.xlake.table.schema.Types.decimal(pb.getPrecision(), pb.getScale(), nullable);
+            case DECIMAL ->
+                    io.github.ximin.xlake.table.schema.Types.decimal(pb.getPrecision(), pb.getScale(), nullable);
             case STRING -> io.github.ximin.xlake.table.schema.Types.string(nullable);
             case BINARY -> io.github.ximin.xlake.table.schema.Types.binary(nullable);
             case DATE -> io.github.ximin.xlake.table.schema.Types.date(nullable);

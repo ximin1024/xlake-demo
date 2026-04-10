@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -32,12 +34,11 @@ public record Between(Expression column, Expression lowerBound, Expression upper
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
+    public boolean evaluate(RecordView row) {
         Comparable columnValue = evaluateExpression(column, row);
         Comparable lowerValue = evaluateExpression(lowerBound, row);
         Comparable upperValue = evaluateExpression(upperBound, row);
 
-        // 如果任何值为 null，返回 false
         if (columnValue == null || lowerValue == null || upperValue == null) {
             return false;
         }
@@ -52,10 +53,10 @@ public record Between(Expression column, Expression lowerBound, Expression upper
         }
     }
 
-    private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
+    private Comparable evaluateExpression(Expression expr, RecordView row) {
         if (expr instanceof ColumnRef) {
             String columnName = ((ColumnRef) expr).columnName();
-            return row.get(columnName);
+            return row.comparableField(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();
         }

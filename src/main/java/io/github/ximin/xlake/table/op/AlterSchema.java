@@ -19,15 +19,15 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.GrpcTableMetaClient;
-import io.github.ximin.xlake.table.TableMetaClient;
 import io.github.ximin.xlake.meta.*;
+import io.github.ximin.xlake.metastore.client.GrpcTableMetaClient;
+import io.github.ximin.xlake.metastore.client.TableMetaClient;
 import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.function.Supplier;
 
 public class AlterSchema extends RpcOp {
-    private final static String TYPE = "ALTER_SCHEMA";
+    private final static OpType TYPE = OpType.ALTER_SCHEMA;
     private final PbSchema newSchema;
 
     private AlterSchema(XlakeTable table, Supplier<TableMetaClient> clientSupplier, PbSchema newSchema) {
@@ -39,7 +39,7 @@ public class AlterSchema extends RpcOp {
     public OpResult exec() {
         try {
             var tableOp = PbTableOperation.newBuilder()
-                    .setOperationType(type())
+                    .setOperationType(type().wireName())
                     .setTableName(table.name())
                     .setSchema(newSchema)
                     .build();
@@ -52,7 +52,7 @@ public class AlterSchema extends RpcOp {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -60,14 +60,18 @@ public class AlterSchema extends RpcOp {
         return new AlterSchemaBuilder();
     }
 
-    public static class AlterSchemaBuilder {
+    public static class AlterSchemaBuilder implements TableOpBuilder<OpResult, AlterSchema> {
         private XlakeTable table;
         private Supplier<TableMetaClient> clientSupplier;
         private PbSchema newSchema;
 
-        public AlterSchemaBuilder tableName(XlakeTable table) {
+        public AlterSchemaBuilder withTable(XlakeTable table) {
             this.table = table;
             return this;
+        }
+
+        public AlterSchemaBuilder tableName(XlakeTable table) {
+            return withTable(table);
         }
 
         public AlterSchemaBuilder clientSupplier(Supplier<TableMetaClient> clientSupplier) {
@@ -80,6 +84,12 @@ public class AlterSchema extends RpcOp {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public AlterSchema build() {
             if (table == null) {
                 throw new IllegalStateException("tableName must be set");

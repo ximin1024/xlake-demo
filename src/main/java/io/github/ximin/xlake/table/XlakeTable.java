@@ -19,8 +19,7 @@
  */
 package io.github.ximin.xlake.table;
 
-import io.github.ximin.xlake.table.op.Op;
-import io.github.ximin.xlake.table.op.OpResult;
+import io.github.ximin.xlake.table.op.*;
 import io.github.ximin.xlake.table.schema.Schema;
 
 import java.io.Serializable;
@@ -86,7 +85,29 @@ public interface XlakeTable extends Serializable {
 
     List<Snapshot> snapshots();
 
-    OpResult op(Op op);
+    default <R extends OpResult> R op(Op<R> op) {
+        return op.exec();
+    }
+
+    default <R extends OpResult, O extends Op<R>> R op(TableOpBuilder<R, O> builder) {
+        return builder.build().exec();
+    }
+
+    default Read.Result read(Read read) {
+        return read.exec();
+    }
+
+    default <R extends Read> Read.Result read(ReadBuilder<R, ?> builder) {
+        return read(builder.build());
+    }
+
+    default Write.Result write(Write write) {
+        return write.exec();
+    }
+
+    default <W extends Write> Write.Result write(WriteBuilder<W, ?> builder) {
+        return write(builder.build());
+    }
 
     void refresh();
 

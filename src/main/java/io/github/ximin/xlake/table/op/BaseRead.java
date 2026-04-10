@@ -20,7 +20,7 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
-import io.github.ximin.xlake.storage.DataBlock;
+import io.github.ximin.xlake.storage.block.DataBlock;
 
 import java.util.List;
 

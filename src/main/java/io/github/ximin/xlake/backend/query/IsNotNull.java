@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -32,15 +34,15 @@ public class IsNotNull implements Expression {
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
+    public boolean evaluate(RecordView row) {
         Comparable value = evaluateExpression(column, row);
         return value != null;
     }
 
-    private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
+    private Comparable evaluateExpression(Expression expr, RecordView row) {
         if (expr instanceof ColumnRef) {
             String columnName = ((ColumnRef) expr).columnName();
-            return row.get(columnName);
+            return row.comparableField(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();
         }

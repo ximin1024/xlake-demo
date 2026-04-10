@@ -19,15 +19,15 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.KeyGenerator;
 import io.github.ximin.xlake.table.XlakeTable;
+import io.github.ximin.xlake.table.keygen.KeyGenerator;
 import io.github.ximin.xlake.writer.Writer;
 
 import java.util.Collection;
 import java.util.Properties;
 
 public class AppendOnlyWrite extends BatchWrite {
-    public final static String TYPE = "APPEND_ONLY_WRITE";
+    public final static OpType TYPE = OpType.APPEND_ONLY_WRITE;
 
     private XlakeTable table;
     private Integer partitionId;
@@ -38,7 +38,7 @@ public class AppendOnlyWrite extends BatchWrite {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 }

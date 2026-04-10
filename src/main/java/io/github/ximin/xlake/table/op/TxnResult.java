@@ -24,6 +24,8 @@ import java.util.Optional;
 
 public interface TxnResult extends OpResult {
 
+    OpType operationType();
+
     long transactionId();
 
     List<String> affectedOperations();
@@ -40,7 +42,7 @@ public interface TxnResult extends OpResult {
         private final List<String> operations;
 
         public CommitResult(boolean success, String message, Throwable error,
-                           long timestamp, long transactionId, long commitTs, List<String> operations) {
+                            long timestamp, long transactionId, long commitTs, List<String> operations) {
             this.success = success;
             this.message = message;
             this.error = error;
@@ -68,6 +70,11 @@ public interface TxnResult extends OpResult {
         @Override
         public long timestamp() {
             return timestamp;
+        }
+
+        @Override
+        public OpType operationType() {
+            return OpType.COMMIT;
         }
 
         @Override
@@ -100,7 +107,7 @@ public interface TxnResult extends OpResult {
         private final String abortReason;
 
         public AbortResult(boolean success, String message, Throwable error,
-                          long timestamp, long transactionId, String abortReason) {
+                           long timestamp, long transactionId, String abortReason) {
             this.success = success;
             this.message = message;
             this.error = error;
@@ -127,6 +134,11 @@ public interface TxnResult extends OpResult {
         @Override
         public long timestamp() {
             return timestamp;
+        }
+
+        @Override
+        public OpType operationType() {
+            return OpType.ABORT;
         }
 
         @Override

@@ -22,10 +22,20 @@ package io.github.ximin.xlake.table.op;
 import io.github.ximin.xlake.table.XlakeTable;
 import io.github.ximin.xlake.writer.Writer;
 
-public interface WriteBuilder {
-    Write build();
+import java.util.Properties;
 
-    void withWriter(Writer writer);
+public interface WriteBuilder<W extends Write, B extends WriteBuilder<W, B>> extends TableOpBuilder<Write.Result, W> {
+    B withTable(XlakeTable table);
 
+    @Override
+    W build();
+
+    B withWriter(Writer writer);
+
+    default B withConfig(Properties config) {
+        throw new UnsupportedOperationException("Config is not supported by this builder");
+    }
+
+    @Override
     XlakeTable table();
 }

@@ -20,20 +20,23 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
+import io.github.ximin.xlake.table.XlakeTable;
 import io.github.ximin.xlake.writer.Writer;
 
 import java.util.Map;
 import java.util.Properties;
 
 public class Update implements Write {
-    private final static String TYPE = "UPDATE";
+    private final static OpType TYPE = OpType.UPDATE;
 
+    private final XlakeTable table;
     private final Expression condition;
     private final Map<String, Object> updates;
     private final Writer writer;
     private final Properties config;
 
-    public Update(Expression condition, Map<String, Object> updates, Writer writer, Properties config) {
+    public Update(XlakeTable table, Expression condition, Map<String, Object> updates, Writer writer, Properties config) {
+        this.table = table;
         this.condition = condition;
         this.updates = updates;
         this.writer = writer;
@@ -41,7 +44,7 @@ public class Update implements Write {
     }
 
     @Override
-    public OpResult exec() {
+    public Write.Result exec() {
         try {
             writer.init(config);
 
@@ -65,7 +68,7 @@ public class Update implements Write {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -86,11 +89,18 @@ public class Update implements Write {
         return new Builder();
     }
 
-    public static class Builder {
+    public static class Builder implements WriteBuilder<Update, Builder> {
+        private XlakeTable table;
         private Expression condition;
         private Map<String, Object> updates;
         private Writer writer;
         private Properties config = new Properties();
+
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
 
         public Builder withCondition(Expression condition) {
             this.condition = condition;
@@ -102,11 +112,13 @@ public class Update implements Write {
             return this;
         }
 
+        @Override
         public Builder withWriter(Writer writer) {
             this.writer = writer;
             return this;
         }
 
+        @Override
         public Builder withConfig(Properties config) {
             this.config = config;
             return this;
@@ -117,6 +129,12 @@ public class Update implements Write {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Update build() {
             if (condition == null) {
                 throw new IllegalStateException("condition must be set");
@@ -127,7 +145,7 @@ public class Update implements Write {
             if (writer == null) {
                 throw new IllegalStateException("writer must be set");
             }
-            return new Update(condition, updates, writer, config);
+            return new Update(table, condition, updates, writer, config);
         }
     }
 }

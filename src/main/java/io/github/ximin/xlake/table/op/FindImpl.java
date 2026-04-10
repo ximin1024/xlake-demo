@@ -20,19 +20,27 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
-import io.github.ximin.xlake.storage.DataBlock;
+import io.github.ximin.xlake.storage.block.DataBlock;
+import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.List;
 import java.util.Map;
 
 public final class FindImpl implements Find {
+    private static final OpType TYPE = OpType.FIND;
 
+    private final XlakeTable table;
+    private final List<DataBlock> dataBlocks;
+    private final Expression pushedPredicate;
     private final Map<String, Comparable> primaryKeyValues;
     private final List<String> projection;
     private final long snapshotId;
     private final boolean caseSensitive;
 
     private FindImpl(Builder builder) {
+        this.table = builder.table;
+        this.dataBlocks = builder.dataBlocks != null ? List.copyOf(builder.dataBlocks) : List.of();
+        this.pushedPredicate = builder.pushedPredicate;
         this.primaryKeyValues = builder.primaryKeyValues != null
                 ? Map.copyOf(builder.primaryKeyValues) : Map.of();
         this.projection = builder.projection != null ? List.copyOf(builder.projection) : List.of();
@@ -42,7 +50,7 @@ public final class FindImpl implements Find {
 
     @Override
     public Expression filter() {
-        return null;
+        return pushedPredicate;
     }
 
     @Override
@@ -70,13 +78,13 @@ public final class FindImpl implements Find {
     }
 
     @Override
-    public OpResult exec() {
-        return OpResult.failure("Find operation not implemented yet");
+    public Find.Result exec() {
+        return Find.Result.error("Find operation not implemented yet", null);
     }
 
     @Override
-    public String type() {
-        return "";
+    public OpType type() {
+        return TYPE;
     }
 
     public static Builder builder() {
@@ -85,29 +93,55 @@ public final class FindImpl implements Find {
 
     @Override
     public List<DataBlock> getDataBlocks() {
-        return List.of();
+        return dataBlocks;
     }
 
     @Override
     public long estimatedSize() {
-        return 0;
+        return dataBlocks.stream().mapToLong(DataBlock::getSize).sum();
     }
 
     @Override
     public Expression getPushedPredicate() {
-        return null;
+        return pushedPredicate;
     }
 
     @Override
     public boolean isPrimaryKeyLookup() {
-        return false;
+        return true;
     }
 
-    public static class Builder {
+    public static class Builder implements ReadBuilder<FindImpl, Builder> {
+        private XlakeTable table;
+        private List<DataBlock> dataBlocks;
+        private Expression pushedPredicate;
         private Map<String, Comparable> primaryKeyValues;
         private List<String> projection;
         private Long snapshotId;
         private boolean caseSensitive = true;
+
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
+
+        @Override
+        public Builder withDataBlocks(List<DataBlock> dataBlocks) {
+            this.dataBlocks = dataBlocks;
+            return this;
+        }
+
+        @Override
+        public Builder withPredicate(Expression predicate) {
+            this.pushedPredicate = predicate;
+            return this;
+        }
+
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
 
         public Builder withPrimaryKey(Map<String, Comparable> pkValues) {
             this.primaryKeyValues = pkValues;

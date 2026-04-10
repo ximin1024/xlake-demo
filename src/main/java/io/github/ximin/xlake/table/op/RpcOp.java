@@ -19,13 +19,13 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.TableMetaClient;
+import io.github.ximin.xlake.metastore.client.TableMetaClient;
 import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.Optional;
 import java.util.function.Supplier;
 
-public abstract class RpcOp extends AbstractOp {
+public abstract class RpcOp extends AbstractOp<OpResult> {
     protected final Supplier<TableMetaClient> clientSupplier;
 
     protected RpcOp(XlakeTable table, Supplier<TableMetaClient> clientSupplier) {

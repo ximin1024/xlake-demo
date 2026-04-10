@@ -26,8 +26,8 @@ import io.github.ximin.xlake.table.ProtoTableMetaConverter;
 
 import java.util.function.Supplier;
 
-public class CreateTable {
-    private final static String TYPE = "CREATE_TABLE";
+public class CreateTable implements Op<DdlResult> {
+    private final static OpType TYPE = OpType.CREATE_TABLE;
     private final XlakeTable table;
     private final Supplier<Metastore> metastoreSupplier;
     private final TableMeta tableMeta;
@@ -38,6 +38,7 @@ public class CreateTable {
         this.tableMeta = tableMeta;
     }
 
+    @Override
     public DdlResult exec() {
         try {
             Metastore metastore = metastoreSupplier.get();
@@ -50,7 +51,8 @@ public class CreateTable {
         }
     }
 
-    public String type() {
+    @Override
+    public OpType type() {
         return TYPE;
     }
 
@@ -58,14 +60,18 @@ public class CreateTable {
         return new CreateTableBuilder();
     }
 
-    public static class CreateTableBuilder {
-        private XlakeTable table;
+    public static class CreateTableBuilder implements TableOpBuilder<DdlResult, CreateTable> {
+        private XlakeTable xlakeTable;
         private Supplier<Metastore> metastoreSupplier;
         private TableMeta tableMeta;
 
-        public CreateTableBuilder table(XlakeTable table) {
-            this.table = table;
+        public CreateTableBuilder withTable(XlakeTable xlakeTable) {
+            this.xlakeTable = xlakeTable;
             return this;
+        }
+
+        public CreateTableBuilder table(XlakeTable xlakeTable) {
+            return withTable(xlakeTable);
         }
 
         public CreateTableBuilder metastoreSupplier(Supplier<Metastore> metastoreSupplier) {
@@ -78,8 +84,14 @@ public class CreateTable {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return xlakeTable;
+        }
+
+        @Override
         public CreateTable build() {
-            if (table == null) {
+            if (xlakeTable == null) {
                 throw new IllegalStateException("table must be set");
             }
             if (tableMeta == null) {
@@ -88,7 +100,7 @@ public class CreateTable {
             if (metastoreSupplier == null) {
                 throw new IllegalStateException("metastoreSupplier must be set");
             }
-            return new CreateTable(table, metastoreSupplier, tableMeta);
+            return new CreateTable(xlakeTable, metastoreSupplier, tableMeta);
         }
     }
 }

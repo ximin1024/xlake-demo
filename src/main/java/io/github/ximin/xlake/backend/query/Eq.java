@@ -19,36 +19,10 @@
  */
 package io.github.ximin.xlake.backend.query;
 
-import java.util.Map;
-
 public class Eq extends BinaryComparison {
 
     public Eq(Expression left, Expression right) {
         super(left, right);
-    }
-
-    @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        if (left instanceof ColumnRef && right instanceof Literal) {
-            String column = ((ColumnRef) left).columnName();
-            Comparable value = ((Literal) right).getValue();
-
-            if (!row.containsKey(column)) {
-                return false;
-            }
-
-            Comparable rowValue = row.get(column);
-            return rowValue != null && rowValue.equals(value);
-        }
-
-        Comparable leftVal = evaluateSide(left, row);
-        Comparable rightVal = evaluateSide(right, row);
-
-        if (leftVal == null || rightVal == null) {
-            return false;
-        }
-
-        return leftVal.equals(rightVal);
     }
 
     @Override

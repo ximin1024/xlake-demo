@@ -19,24 +19,10 @@
  */
 package io.github.ximin.xlake.backend.query;
 
-import java.util.Map;
-
 public class Gt extends BinaryComparison {
 
     public Gt(Expression left, Expression right) {
         super(left, right);
-    }
-
-    @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        Comparable leftVal = evaluateSide(left, row);
-        Comparable rightVal = evaluateSide(right, row);
-
-        if (leftVal == null || rightVal == null) {
-            return false;
-        }
-
-        return leftVal.compareTo(rightVal) > 0;
     }
 
     @Override

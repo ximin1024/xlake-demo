@@ -19,13 +19,13 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.KvRecord;
+import io.github.ximin.xlake.storage.table.record.KvRecord;
 import io.github.ximin.xlake.table.XlakeTable;
 import io.github.ximin.xlake.writer.Writer;
 import lombok.Getter;
 
 public class KvWrite implements Write {
-    private final static String TYPE = "KV_WRITE";
+    private final static OpType TYPE = OpType.KV_WRITE;
     private final XlakeTable table;
     private final byte[] key;
     private final byte[] value;
@@ -47,12 +47,18 @@ public class KvWrite implements Write {
     }
 
     @Override
-    public OpResult exec() {
-        return writer.write(new KvRecord(key, value));
+    public Write.Result exec() {
+        OpResult result = writer.write(new KvRecord(key, value));
+        if (result instanceof Write.Result writeResult) {
+            return writeResult;
+        }
+        return result.success()
+                ? Write.Result.ok(result.message().orElse("success"), 1)
+                : Write.Result.error(result.message().orElse("write failed"), result.error().orElse(null));
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 }

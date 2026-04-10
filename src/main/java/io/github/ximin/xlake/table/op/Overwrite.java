@@ -20,20 +20,23 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
+import io.github.ximin.xlake.table.XlakeTable;
 import io.github.ximin.xlake.writer.Writer;
 
 import java.util.Collection;
 import java.util.Properties;
 
 public class Overwrite implements Write {
-    private final static String TYPE = "OVERWRITE";
+    private final static OpType TYPE = OpType.OVERWRITE;
 
+    private final XlakeTable table;
     private final Collection<?> data;
     private final Expression partitionFilter;
     private final Writer writer;
     private final Properties config;
 
-    public Overwrite(Collection<?> data, Expression partitionFilter, Writer writer, Properties config) {
+    public Overwrite(XlakeTable table, Collection<?> data, Expression partitionFilter, Writer writer, Properties config) {
+        this.table = table;
         this.data = data;
         this.partitionFilter = partitionFilter;
         this.writer = writer;
@@ -41,7 +44,7 @@ public class Overwrite implements Write {
     }
 
     @Override
-    public OpResult exec() {
+    public Write.Result exec() {
         try {
             writer.init(config);
 
@@ -49,9 +52,9 @@ public class Overwrite implements Write {
 
             writer.flush();
 
-            return new WriteResult(true, "Overwritten " + overwrittenCount + " records", null, System.currentTimeMillis(), overwrittenCount);
+            return Result.ok("Overwritten " + overwrittenCount + " records", overwrittenCount);
         } catch (Exception e) {
-            return new WriteResult(false, "Overwrite failed: " + e.getMessage(), e, System.currentTimeMillis(), 0);
+            return Result.error("Overwrite failed: " + e.getMessage(), e);
         } finally {
             try {
                 writer.close();
@@ -65,7 +68,7 @@ public class Overwrite implements Write {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -90,11 +93,18 @@ public class Overwrite implements Write {
         return new Builder();
     }
 
-    public static class Builder {
+    public static class Builder implements WriteBuilder<Overwrite, Builder> {
+        private XlakeTable table;
         private Collection<?> data;
         private Expression partitionFilter;
         private Writer writer;
         private Properties config = new Properties();
+
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
 
         public Builder withData(Collection<?> data) {
             this.data = data;
@@ -106,11 +116,13 @@ public class Overwrite implements Write {
             return this;
         }
 
+        @Override
         public Builder withWriter(Writer writer) {
             this.writer = writer;
             return this;
         }
 
+        @Override
         public Builder withConfig(Properties config) {
             this.config = config;
             return this;
@@ -121,6 +133,12 @@ public class Overwrite implements Write {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Overwrite build() {
             if (data == null || data.isEmpty()) {
                 throw new IllegalStateException("data must be set");
@@ -128,7 +146,7 @@ public class Overwrite implements Write {
             if (writer == null) {
                 throw new IllegalStateException("writer must be set");
             }
-            return new Overwrite(data, partitionFilter, writer, config);
+            return new Overwrite(table, data, partitionFilter, writer, config);
         }
     }
 }

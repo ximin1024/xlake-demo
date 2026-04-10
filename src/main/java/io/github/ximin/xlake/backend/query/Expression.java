@@ -21,6 +21,7 @@ package io.github.ximin.xlake.backend.query;
 
 import io.github.ximin.xlake.backend.query.serializer.ProtoExpressionSerializer;
 import io.github.ximin.xlake.meta.PbExpression;
+import io.github.ximin.xlake.table.record.RecordView;
 
 import java.io.Serializable;
 import java.util.Map;
@@ -28,8 +29,7 @@ import java.util.Set;
 
 public interface Expression extends Serializable {
 
-    // todo 暂时用map替代，实际需要使用自定义row对象
-    boolean evaluate(Map<String, Comparable> row);
+    boolean evaluate(RecordView row);
 
     /**
      * 获取表达式类型

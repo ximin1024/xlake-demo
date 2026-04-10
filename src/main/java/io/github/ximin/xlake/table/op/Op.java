@@ -19,7 +19,12 @@
  */
 package io.github.ximin.xlake.table.op;
 
-public interface Op{
-    OpResult exec();
-    String type();
+public interface Op<R extends OpResult> {
+    R exec();
+
+    default R execute() {
+        return exec();
+    }
+
+    OpType type();
 }

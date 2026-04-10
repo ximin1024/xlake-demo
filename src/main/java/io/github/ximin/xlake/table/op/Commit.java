@@ -19,9 +19,9 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.GrpcTableMetaClient;
-import io.github.ximin.xlake.table.TableMetaClient;
 import io.github.ximin.xlake.meta.*;
+import io.github.ximin.xlake.metastore.client.GrpcTableMetaClient;
+import io.github.ximin.xlake.metastore.client.TableMetaClient;
 import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.ArrayList;
@@ -30,14 +30,14 @@ import java.util.function.Supplier;
 
 public class Commit extends RpcOp {
 
-    private final static String TYPE = "COMMIT";
-    private final List<Op> operations;
+    private final static OpType TYPE = OpType.COMMIT;
+    private final List<Op<?>> operations;
     private final long commitId;
 
     private Commit(XlakeTable table,
                    long commitId,
                    Supplier<TableMetaClient> clientSupplier,
-                   List<Op> operations) {
+                   List<Op<?>> operations) {
         super(table, clientSupplier);
         this.operations = operations;
         this.commitId = commitId;
@@ -51,7 +51,7 @@ public class Commit extends RpcOp {
 
         try {
             List<PbTableOperation> grpcOps = new ArrayList<>();
-            for (Op op : operations) {
+            for (Op<?> op : operations) {
                 grpcOps.add(convertToGrpcOperation(op));
             }
 
@@ -63,13 +63,13 @@ public class Commit extends RpcOp {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
-    private PbTableOperation convertToGrpcOperation(Op op) {
+    private PbTableOperation convertToGrpcOperation(Op<?> op) {
         return PbTableOperation.newBuilder()
-                .setOperationType(op.type())
+                .setOperationType(op.type().wireName())
                 .setTableName(table.name())
                 .build();
     }
@@ -78,15 +78,19 @@ public class Commit extends RpcOp {
         return new CommitBuilder();
     }
 
-    public static class CommitBuilder {
+    public static class CommitBuilder implements TableOpBuilder<OpResult, Commit> {
         private XlakeTable table;
         private Supplier<TableMetaClient> clientSupplier;
-        private List<Op> operations = new ArrayList<>();
+        private List<Op<?>> operations = new ArrayList<>();
         private long commitId;
 
-        public CommitBuilder tableName(XlakeTable table) {
+        public CommitBuilder withTable(XlakeTable table) {
             this.table = table;
             return this;
+        }
+
+        public CommitBuilder tableName(XlakeTable table) {
+            return withTable(table);
         }
 
         public CommitBuilder clientSupplier(Supplier<TableMetaClient> clientSupplier) {
@@ -94,12 +98,12 @@ public class Commit extends RpcOp {
             return this;
         }
 
-        public CommitBuilder addOperation(Op operation) {
+        public CommitBuilder addOperation(Op<?> operation) {
             this.operations.add(operation);
             return this;
         }
 
-        public CommitBuilder operations(List<Op> operations) {
+        public CommitBuilder operations(List<Op<?>> operations) {
             this.operations = operations;
             return this;
         }
@@ -109,6 +113,12 @@ public class Commit extends RpcOp {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Commit build() {
             if (table == null) {
                 throw new IllegalStateException("tableName must be set");

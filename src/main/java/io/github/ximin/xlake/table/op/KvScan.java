@@ -20,20 +20,31 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
-import io.github.ximin.xlake.storage.DataBlock;
+import io.github.ximin.xlake.storage.block.DataBlock;
+import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.List;
 
 public class KvScan implements Scan {
-
+    private final XlakeTable table;
     private final List<DataBlock> dataBlocks;
     private final Expression pushedPredicate;
     private final long snapshotId;
+    private final DataBlock.KeyRange keyRange;
+    private final List<String> projections;
 
-    public KvScan(List<DataBlock> dataBlocks, Expression pushedPredicate, long snapshotId) {
+    public KvScan(XlakeTable table,
+                  List<DataBlock> dataBlocks,
+                  Expression pushedPredicate,
+                  long snapshotId,
+                  DataBlock.KeyRange keyRange,
+                  List<String> projections) {
+        this.table = table;
         this.dataBlocks = dataBlocks;
         this.pushedPredicate = pushedPredicate;
         this.snapshotId = snapshotId;
+        this.keyRange = keyRange;
+        this.projections = projections != null ? List.copyOf(projections) : List.of();
     }
 
     @Override
@@ -52,36 +63,62 @@ public class KvScan implements Scan {
     }
 
     @Override
-    public OpResult exec() {
-        return OpResult.failure("KvScan exec not implemented - use Reader to execute");
+    public Scan.Result exec() {
+        return Scan.Result.error("KvScan exec not implemented - use Reader to execute", null);
     }
 
     @Override
-    public String type() {
-        return "KV_SCAN";
+    public OpType type() {
+        return OpType.KV_SCAN;
     }
 
     public long snapshotId() {
         return snapshotId;
     }
 
+    @Override
+    public DataBlock.KeyRange keyRange() {
+        return keyRange;
+    }
+
+    @Override
+    public List<String> projections() {
+        return projections;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
 
-    public static class Builder {
+    public static class Builder implements ReadBuilder<KvScan, Builder> {
+        private XlakeTable table;
         private List<DataBlock> dataBlocks;
         private Expression pushedPredicate;
         private long snapshotId = -1;
+        private DataBlock.KeyRange keyRange;
+        private List<String> projections;
 
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
+
+        @Override
         public Builder withDataBlocks(List<DataBlock> dataBlocks) {
             this.dataBlocks = dataBlocks;
             return this;
         }
 
+        @Override
         public Builder withPredicate(Expression predicate) {
             this.pushedPredicate = predicate;
             return this;
+        }
+
+        @Override
+        public XlakeTable table() {
+            return table;
         }
 
         public Builder withSnapshotId(long snapshotId) {
@@ -89,8 +126,18 @@ public class KvScan implements Scan {
             return this;
         }
 
+        public Builder withKeyRange(DataBlock.KeyRange keyRange) {
+            this.keyRange = keyRange;
+            return this;
+        }
+
+        public Builder withProjections(List<String> projections) {
+            this.projections = projections;
+            return this;
+        }
+
         public KvScan build() {
-            return new KvScan(dataBlocks, pushedPredicate, snapshotId);
+            return new KvScan(table, dataBlocks, pushedPredicate, snapshotId, keyRange, projections);
         }
     }
 }

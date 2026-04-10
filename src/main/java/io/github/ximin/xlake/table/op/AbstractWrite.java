@@ -33,7 +33,7 @@ public abstract class AbstractWrite implements Write {
     }
 
     @Override
-    public OpResult exec() {
+    public Write.Result exec() {
         try {
             writer.init(config);
 

@@ -20,11 +20,12 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
-import io.github.ximin.xlake.storage.DataBlock;
+import io.github.ximin.xlake.storage.block.DataBlock;
 
 import java.util.List;
+import java.util.Optional;
 
-public interface Read extends Op {
+public interface Read extends Op<Read.Result> {
 
     List<DataBlock> getDataBlocks();
 
@@ -33,4 +34,20 @@ public interface Read extends Op {
     Expression getPushedPredicate();
 
     boolean isPrimaryKeyLookup();
+
+    @Override
+    Result exec();
+
+    interface Result extends OpResult {
+
+        long recordCount();
+
+        long bytesRead();
+
+        List<?> data();
+
+        Optional<Object> singleResult();
+
+        boolean hasMore();
+    }
 }
