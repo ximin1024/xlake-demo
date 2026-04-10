@@ -22,11 +22,12 @@ package io.github.ximin.xlake.table;
 import io.github.ximin.xlake.table.op.*;
 import io.github.ximin.xlake.table.schema.Schema;
 
+import java.io.Closeable;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
 
-public interface XlakeTable extends Serializable {
+public interface XlakeTable extends Closeable {
     TableMeta meta();
 
     default String name() {
