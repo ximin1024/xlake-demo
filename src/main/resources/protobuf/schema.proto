@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package nebulake.schema;
+package xlake.schema;
 
 option java_package = "io.github.ximin.xlake.schema.proto";
 option java_multiple_files = true;
@@ -25,7 +25,7 @@ enum PbPrimitiveKind {
 
 // ==================== 类型系统（多态）====================
 // 使用 oneof 实现与 Java sealed interface 层次结构的一一映射
-// NebulakeType → PbType (oneof: primitive | array | map | struct)
+// XlakeType → PbType (oneof: primitive | array | map | struct)
 
 message PbType {
   oneof kind {
@@ -52,7 +52,7 @@ message PbPrimitive {
 }
 
 // ---- 数组类型 (ArrayType) ----
-// record ArrayType(NebulakeType elementType, boolean isNullable, String description)
+// record ArrayType(XlakeType elementType, boolean isNullable, String description)
 
 message PbArray {
   PbType element_type = 1;   // 递归引用，支持 array<array<int32>> 等嵌套
@@ -61,7 +61,7 @@ message PbArray {
 }
 
 // ---- Map 类型 (MapType) ----
-// record MapType(NebulakeType keyType, NebulakeType valueType, boolean isNullable, String description)
+// record MapType(XlakeType keyType, XlakeType valueType, boolean isNullable, String description)
 
 message PbMap {
   PbType key_type = 1;
@@ -71,7 +71,7 @@ message PbMap {
 }
 
 // ---- Struct 字段 (StructField) ----
-// record StructField(String name, NebulakeType dataType, String comment, Map<String,String> metadata)
+// record StructField(String name, XlakeType dataType, String comment, Map<String,String> metadata)
 
 message PbStructField {
   string name = 1;

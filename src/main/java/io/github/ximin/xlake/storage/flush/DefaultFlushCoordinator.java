@@ -44,7 +44,7 @@ public class DefaultFlushCoordinator implements FlushCoordinator {
     private static final Schema KEY_VALUE_SCHEMA = new Schema.Parser().parse("""
             {
               "type": "record",
-              "name": "NebulakeKeyValueRecord",
+              "name": "XlakeKeyValueRecord",
               "fields": [
                 {"name": "key", "type": "bytes"},
                 {"name": "value", "type": "bytes"}

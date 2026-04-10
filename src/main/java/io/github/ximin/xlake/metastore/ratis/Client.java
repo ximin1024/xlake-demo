@@ -51,7 +51,7 @@ public class Client implements AutoCloseable {
 
         RaftGroupId groupId = RaftGroupId.valueOf(
                 org.apache.ratis.thirdparty.com.google.protobuf.ByteString.copyFrom(
-                        "nebulake-meta-group".getBytes(StandardCharsets.UTF_8)));
+                        "xlake-meta-group".getBytes(StandardCharsets.UTF_8)));
         RaftGroup group = RaftGroup.valueOf(groupId, peers);
 
         this.client = RaftClient.newBuilder()

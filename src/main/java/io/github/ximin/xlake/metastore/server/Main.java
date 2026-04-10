@@ -42,11 +42,11 @@ public class Main {
     public static void main(String[] args) throws Exception {
         int grpcPort = Integer.parseInt(System.getProperty("grpc.port", "9001"));
         int ratisPort = Integer.parseInt(System.getProperty("ratis.port", "9876"));
-        String dataPath = System.getProperty("metastore.data.path", "/tmp/nebulake/metastore/data");
+        String dataPath = System.getProperty("metastore.data.path", "/tmp/xlake/metastore/data");
         int numShards = Integer.parseInt(System.getProperty("metastore.shards", "16"));
         String nodeId = System.getProperty("node.id", "node1");
 
-        log.info("=== Nebulake Metastore Starting ===");
+        log.info("=== Xlake Metastore Starting ===");
         log.info("  Node ID:      {}", nodeId);
         log.info("  gRPC Port:    {}", grpcPort);
         log.info("  Ratis Port:   {}", ratisPort);
@@ -63,7 +63,7 @@ public class Main {
                 .build();
 
         RaftGroupId groupId = RaftGroupId.valueOf(
-                ByteString.copyFrom("nebulake-meta-group".getBytes(StandardCharsets.UTF_8)));
+                ByteString.copyFrom("xlake-meta-group".getBytes(StandardCharsets.UTF_8)));
         RaftGroup raftGroup = RaftGroup.valueOf(groupId, Collections.singletonList(localPeer));
 
         RaftProperties properties = new RaftProperties();
@@ -82,7 +82,7 @@ public class Main {
         grpcServer.start();
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("=== Shutting down Nebulake Metastore ===");
+            log.info("=== Shutting down Xlake Metastore ===");
             try {
                 grpcServer.shutdown();
             } catch (Exception e) {
@@ -100,7 +100,7 @@ public class Main {
             }
         }));
 
-        log.info("=== Nebulake Metastore Ready ===");
+        log.info("=== Xlake Metastore Ready ===");
         log.info("  gRPC endpoint:  localhost:{}", grpcPort);
         log.info("  Ratis endpoint: localhost:{}", ratisPort);
         log.info("  Backend:       Ratis + RocksDB (distributed, consistent hashing)");
