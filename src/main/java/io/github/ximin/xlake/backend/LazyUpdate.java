@@ -7,9 +7,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -48,31 +48,34 @@ public class LazyUpdate {
             existing.put("_version", System.currentTimeMillis());
             lsmTree.put(pkString, existing);
 
-            log.info("LSM Update: {}  -> {}", pkString, existing);
+            System.out.println("LSM Update: " + pkString + " -> " + existing);
         } else {
             // 非主键范围更新：记录谓词条件
             pendingUpdates.add(update);
-            log.info("Pending Update: {}", update);
+            System.out.println("Pending Update: " + update);
         }
     }
 
-    // 查询数据（合并存储的谓词条件）
+    /**
+     * 查询数据（合并存储的谓词条件）
+     */
     public List<Map<String, Comparable>> query(Expression where) {
         List<Map<String, Comparable>> results = new ArrayList<>();
 
         // 首先检查 LSM Tree 中的数据
+        // todo 需要将Map<String, Comparable> 改成RecordView
         for (Map.Entry<String, Map<String, Comparable>> entry : lsmTree.entrySet()) {
             Map<String, Comparable> row = entry.getValue();
 
-            if (where.evaluate(row)) {
-                results.add(new HashMap<>(row));
-            }
+//            if (where.evaluate(row)) {
+//                results.add(new HashMap<>(row));
+//            }
         }
 
-        /*
-         todo 对于未在 LSM Tree 中的数据，应用 pending updates,这里需要根据具体的数据源实现数据扫描,
-          实际实现中会从底层存储（如 Parquet 文件）读取数据
-         */
+        // todo
+        // 对于未在 LSM Tree 中的数据，应用 pending updates
+        // 这里需要根据具体的数据源实现数据扫描
+        // 实际实现中会从底层存储（如 Parquet 文件）读取数据
 
         return results;
     }
@@ -84,15 +87,17 @@ public class LazyUpdate {
         // 分析查询条件
         Set<String> referencedColumns = queryCondition.getReferencedColumns();
 
+        // 找出相关的 pending updates
         List<UpdateEntry> relevantUpdates = pendingUpdates.stream()
-                .filter(update -> update.getCondition() != null)
-                .filter(update -> hasOverlap(update.getCondition(), queryCondition))
+                .filter(update -> update.getPredicate() != null)
+                .filter(update -> hasOverlap(update.getPredicate(), queryCondition))
                 .collect(Collectors.toList());
 
         // 构建合并的查询计划
         if (relevantUpdates.isEmpty()) {
             result.setDirectQuery(queryCondition);
         } else {
+            // 需要合并谓词
             Expression combinedCondition = buildCombinedCondition(queryCondition, relevantUpdates);
             result.setCombinedQuery(combinedCondition);
             result.setRelevantUpdates(relevantUpdates);
@@ -127,7 +132,8 @@ public class LazyUpdate {
         conditions.add(queryCondition);
 
         for (UpdateEntry update : relevantUpdates) {
-            conditions.add(update.getCondition());
+            // 将 update 条件转换为影响判断
+            conditions.add(update.getPredicate());
         }
 
         return new And(conditions.toArray(new Expression[0]));

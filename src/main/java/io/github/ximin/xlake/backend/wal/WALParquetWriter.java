@@ -19,7 +19,7 @@
  */
 package io.github.ximin.xlake.backend.wal;
 
-import io.github.ximin.xlake.backend.writer.DefaultParquetWriterBuilder;
+import io.github.ximin.xlake.writer.DefaultParquetWriterBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;

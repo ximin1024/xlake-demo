@@ -19,6 +19,7 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
 import lombok.Getter;
 
 import java.util.Collections;
@@ -36,9 +37,7 @@ public class Literal implements Expression {
         this.valueType = value != null ? value.getClass() : null;
     }
 
-    @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        // 字面量总是为真
+    public boolean evaluate(RecordView row) {
         return true;
     }
 

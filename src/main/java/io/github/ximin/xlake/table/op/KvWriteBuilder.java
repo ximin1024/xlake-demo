@@ -24,7 +24,7 @@ import io.github.ximin.xlake.writer.Writer;
 import lombok.Builder;
 
 @Builder
-public class KvWriteBuilder implements WriteBuilder {
+public class KvWriteBuilder implements WriteBuilder<KvWrite, KvWriteBuilder> {
     private XlakeTable table;
     private byte[] key;
     private byte[] value;
@@ -32,13 +32,20 @@ public class KvWriteBuilder implements WriteBuilder {
     private Writer writer;
 
     @Override
-    public Write build() {
+    public KvWrite build() {
         return new KvWrite(table, key, value, partitionHint, writer);
     }
 
     @Override
-    public void withWriter(Writer writer) {
+    public KvWriteBuilder withTable(XlakeTable table) {
+        this.table = table;
+        return this;
+    }
+
+    @Override
+    public KvWriteBuilder withWriter(Writer writer) {
         this.writer = writer;
+        return this;
     }
 
     @Override

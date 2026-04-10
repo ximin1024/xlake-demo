@@ -19,7 +19,7 @@
  */
 package io.github.ximin.xlake.writer;
 
-import io.github.ximin.xlake.table.KvRecord;
+import io.github.ximin.xlake.storage.table.record.KvRecord;
 
 import java.util.List;
 

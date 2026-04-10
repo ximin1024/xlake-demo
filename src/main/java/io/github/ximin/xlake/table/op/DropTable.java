@@ -19,14 +19,14 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.GrpcTableMetaClient;
-import io.github.ximin.xlake.table.TableMetaClient;
+import io.github.ximin.xlake.metastore.client.GrpcTableMetaClient;
+import io.github.ximin.xlake.metastore.client.TableMetaClient;
 import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.function.Supplier;
 
 public class DropTable extends RpcOp {
-    private final static String TYPE = "DROP_TABLE";
+    private final static OpType TYPE = OpType.DROP_TABLE;
 
     private DropTable(XlakeTable table, Supplier<TableMetaClient> clientSupplier) {
         super(table, clientSupplier);
@@ -43,7 +43,7 @@ public class DropTable extends RpcOp {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -51,13 +51,17 @@ public class DropTable extends RpcOp {
         return new DropTableBuilder();
     }
 
-    public static class DropTableBuilder {
-        private XlakeTable nebulakeTable;
+    public static class DropTableBuilder implements TableOpBuilder<OpResult, DropTable> {
+        private XlakeTable xlakeTable;
         private Supplier<TableMetaClient> clientSupplier;
 
-        public DropTableBuilder tableName(XlakeTable nebulakeTable) {
-            this.nebulakeTable = nebulakeTable;
+        public DropTableBuilder withTable(XlakeTable xlakeTable) {
+            this.xlakeTable = xlakeTable;
             return this;
+        }
+
+        public DropTableBuilder tableName(XlakeTable xlakeTable) {
+            return withTable(xlakeTable);
         }
 
         public DropTableBuilder clientSupplier(Supplier<TableMetaClient> clientSupplier) {
@@ -65,14 +69,20 @@ public class DropTable extends RpcOp {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return xlakeTable;
+        }
+
+        @Override
         public DropTable build() {
-            if (nebulakeTable == null) {
+            if (xlakeTable == null) {
                 throw new IllegalStateException("tableName must be set");
             }
             if (clientSupplier == null) {
                 clientSupplier = GrpcTableMetaClient::new;
             }
-            return new DropTable(nebulakeTable, clientSupplier);
+            return new DropTable(xlakeTable, clientSupplier);
         }
     }
 }

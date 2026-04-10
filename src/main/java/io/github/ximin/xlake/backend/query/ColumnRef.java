@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -26,8 +28,8 @@ import java.util.Set;
 public record ColumnRef(String columnName) implements Expression {
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        return row.containsKey(columnName);
+    public boolean evaluate(RecordView row) {
+        return row.hasField(columnName);
     }
 
     @Override

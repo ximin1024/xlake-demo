@@ -20,17 +20,19 @@
 package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
-import io.github.ximin.xlake.storage.DataBlock;
+import io.github.ximin.xlake.storage.block.DataBlock;
+import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.List;
 
 public class BatchScan implements Scan {
-
+    private final XlakeTable table;
     private final List<DataBlock> dataBlocks;
     private final Expression pushedPredicate;
     private final List<String> projections;
 
-    public BatchScan(List<DataBlock> dataBlocks, Expression pushedPredicate, List<String> projections) {
+    public BatchScan(XlakeTable table, List<DataBlock> dataBlocks, Expression pushedPredicate, List<String> projections) {
+        this.table = table;
         this.dataBlocks = dataBlocks;
         this.pushedPredicate = pushedPredicate;
         this.projections = projections;
@@ -52,15 +54,16 @@ public class BatchScan implements Scan {
     }
 
     @Override
-    public OpResult exec() {
-        return OpResult.failure("BatchScan exec not implemented - use Reader to execute");
+    public Scan.Result exec() {
+        return Scan.Result.error("BatchScan exec not implemented - use Reader to execute", null);
     }
 
     @Override
-    public String type() {
-        return "BATCH_SCAN";
+    public OpType type() {
+        return OpType.BATCH_SCAN;
     }
 
+    @Override
     public List<String> projections() {
         return projections != null ? projections : List.of();
     }
@@ -69,19 +72,33 @@ public class BatchScan implements Scan {
         return new Builder();
     }
 
-    public static class Builder {
+    public static class Builder implements ReadBuilder<BatchScan, Builder> {
+        private XlakeTable table;
         private List<DataBlock> dataBlocks;
         private Expression pushedPredicate;
         private List<String> projections;
 
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
+
+        @Override
         public Builder withDataBlocks(List<DataBlock> dataBlocks) {
             this.dataBlocks = dataBlocks;
             return this;
         }
 
+        @Override
         public Builder withPredicate(Expression predicate) {
             this.pushedPredicate = predicate;
             return this;
+        }
+
+        @Override
+        public XlakeTable table() {
+            return table;
         }
 
         public Builder withProjections(List<String> projections) {
@@ -90,7 +107,7 @@ public class BatchScan implements Scan {
         }
 
         public BatchScan build() {
-            return new BatchScan(dataBlocks, pushedPredicate, projections);
+            return new BatchScan(table, dataBlocks, pushedPredicate, projections);
         }
     }
 }

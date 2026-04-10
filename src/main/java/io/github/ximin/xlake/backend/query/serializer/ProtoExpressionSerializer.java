@@ -20,6 +20,7 @@
 package io.github.ximin.xlake.backend.query.serializer;
 
 import io.github.ximin.xlake.backend.query.*;
+import io.github.ximin.xlake.backend.query.Direct;
 import io.github.ximin.xlake.backend.query.assignment.*;
 import io.github.ximin.xlake.meta.ExprType;
 import io.github.ximin.xlake.meta.PbExpression;

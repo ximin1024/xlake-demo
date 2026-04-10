@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,21 +32,20 @@ public record NotIn(Expression column, Set<Comparable> values) implements Expres
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
+    public boolean evaluate(RecordView row) {
         Comparable columnValue = evaluateExpression(column, row);
 
         if (columnValue == null) {
-            // NULL 不在任何集合中，返回 true
             return true;
         }
 
         return !values.contains(columnValue);
     }
 
-    private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
+    private Comparable evaluateExpression(Expression expr, RecordView row) {
         if (expr instanceof ColumnRef) {
             String columnName = ((ColumnRef) expr).columnName();
-            return row.get(columnName);
+            return row.comparableField(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();
         }

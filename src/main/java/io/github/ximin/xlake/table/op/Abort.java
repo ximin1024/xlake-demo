@@ -19,14 +19,14 @@
  */
 package io.github.ximin.xlake.table.op;
 
-import io.github.ximin.xlake.table.GrpcTableMetaClient;
-import io.github.ximin.xlake.table.TableMetaClient;
+import io.github.ximin.xlake.metastore.client.GrpcTableMetaClient;
+import io.github.ximin.xlake.metastore.client.TableMetaClient;
 import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.function.Supplier;
 
 public class Abort extends RpcOp {
-    private final static String TYPE = "ABORT";
+    private final static OpType TYPE = OpType.ABORT;
 
     private final long transactionId;
     private final String reason;
@@ -50,7 +50,7 @@ public class Abort extends RpcOp {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -66,15 +66,19 @@ public class Abort extends RpcOp {
         return new AbortBuilder();
     }
 
-    public static class AbortBuilder {
+    public static class AbortBuilder implements TableOpBuilder<OpResult, Abort> {
         private XlakeTable table;
         private long transactionId;
         private String reason;
         private Supplier<TableMetaClient> clientSupplier;
 
-        public AbortBuilder tableName(XlakeTable table) {
+        public AbortBuilder withTable(XlakeTable table) {
             this.table = table;
             return this;
+        }
+
+        public AbortBuilder tableName(XlakeTable table) {
+            return withTable(table);
         }
 
         public AbortBuilder transactionId(long transactionId) {
@@ -92,6 +96,12 @@ public class Abort extends RpcOp {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Abort build() {
             if (table == null) {
                 throw new IllegalStateException("tableName must be set");

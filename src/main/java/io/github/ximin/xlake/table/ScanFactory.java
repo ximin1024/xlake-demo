@@ -21,9 +21,8 @@ package io.github.ximin.xlake.table;
 
 import io.github.ximin.xlake.table.op.BatchScan;
 import io.github.ximin.xlake.table.op.KvScan;
+import io.github.ximin.xlake.table.op.ReadBuilder;
 import io.github.ximin.xlake.table.op.Scan;
-
-import java.util.List;
 
 public class ScanFactory {
     public enum ScanType {
@@ -38,11 +37,23 @@ public class ScanFactory {
         this.scanType = scanType;
     }
 
-    public Scan createScan() {
+    public ReadBuilder<? extends Scan, ?> createBuilder() {
+        return createBuilder(null);
+    }
+
+    public ReadBuilder<? extends Scan, ?> createBuilder(XlakeTable table) {
         return switch (scanType) {
-            case KV -> new KvScan(List.of(), null, -1);
-            case BATCH -> new BatchScan(List.of(), null, List.of());
+            case KV -> KvScan.builder().withTable(table);
+            case BATCH -> BatchScan.builder().withTable(table);
             case INDEX_ONLY, EXPRESSION_ONLY -> throw new UnsupportedOperationException("Scan type not implemented: " + scanType);
         };
+    }
+
+    public Scan createScan() {
+        return createBuilder().build();
+    }
+
+    public Scan createScan(XlakeTable table) {
+        return createBuilder(table).build();
     }
 }

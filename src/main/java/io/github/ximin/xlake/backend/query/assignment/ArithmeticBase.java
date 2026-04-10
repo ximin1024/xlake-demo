@@ -20,8 +20,10 @@
 package io.github.ximin.xlake.backend.query.assignment;
 
 import io.github.ximin.xlake.backend.query.ColumnRef;
+import io.github.ximin.xlake.backend.query.Direct;
 import io.github.ximin.xlake.backend.query.Expression;
 import io.github.ximin.xlake.backend.query.Literal;
+import io.github.ximin.xlake.table.record.RecordView;
 import lombok.Getter;
 
 import java.io.Serializable;
@@ -49,8 +51,7 @@ public abstract class ArithmeticBase implements Assignment {
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        // 结构表示，不实现求值
+    public boolean evaluate(RecordView row) {
         throw new UnsupportedOperationException("Arithmetic is for structure representation only");
     }
 

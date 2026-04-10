@@ -20,11 +20,18 @@
 package io.github.ximin.xlake.table.op;
 
 import java.util.Collection;
+import java.util.Properties;
+import io.github.ximin.xlake.table.XlakeTable;
+import io.github.ximin.xlake.writer.Writer;
 
 public class Insert implements Write {
+    private final static OpType TYPE = OpType.INSERT;
 
+    private final XlakeTable table;
     private final WriteMode mode;
     private final Collection<?> data;
+    private final Writer writer;
+    private final Properties config;
 
     public enum WriteMode {
         APPEND,
@@ -33,8 +40,11 @@ public class Insert implements Write {
     }
 
     public Insert(Builder builder) {
+        this.table = builder.table;
         this.mode = builder.mode;
         this.data = builder.data;
+        this.writer = builder.writer;
+        this.config = builder.config;
     }
 
     public WriteMode mode() {
@@ -46,13 +56,13 @@ public class Insert implements Write {
     }
 
     @Override
-    public OpResult exec() {
+    public Write.Result exec() {
         return Write.Result.ok(data != null ? data.size() : 0);
     }
 
     @Override
-    public String type() {
-        return "INSERT";
+    public OpType type() {
+        return TYPE;
     }
 
     @Override
@@ -64,9 +74,18 @@ public class Insert implements Write {
         return new Builder();
     }
 
-    public static class Builder {
+    public static class Builder implements WriteBuilder<Insert, Builder> {
+        private XlakeTable table;
         private WriteMode mode = WriteMode.APPEND;
         private Collection<?> data;
+        private Writer writer;
+        private Properties config = new Properties();
+
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
 
         public Builder withMode(WriteMode mode) {
             this.mode = mode;
@@ -78,6 +97,29 @@ public class Insert implements Write {
             return this;
         }
 
+        @Override
+        public Builder withWriter(Writer writer) {
+            this.writer = writer;
+            return this;
+        }
+
+        @Override
+        public Builder withConfig(Properties config) {
+            this.config = config;
+            return this;
+        }
+
+        public Builder withConfig(String key, String value) {
+            this.config.setProperty(key, value);
+            return this;
+        }
+
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Insert build() {
             return new Insert(this);
         }

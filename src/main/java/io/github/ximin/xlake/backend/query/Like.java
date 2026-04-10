@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -78,8 +80,7 @@ public class Like implements Expression {
         return null;
     }
 
-    @Override
-    public boolean evaluate(Map<String, Comparable> row) {
+    public boolean evaluate(RecordView row) {
         Comparable columnValue = evaluateExpression(column, row);
         Comparable patternValue = evaluateExpression(pattern, row);
 
@@ -90,7 +91,6 @@ public class Like implements Expression {
         String value = columnValue.toString();
         String patternStr = patternValue.toString();
 
-        // 编译模式（如果未编译）
         if (compiledPattern == null) {
             compiledPattern = compilePattern(pattern);
         }
@@ -99,7 +99,6 @@ public class Like implements Expression {
             return compiledPattern.matcher(value).matches();
         }
 
-        // 简单的字符串匹配（处理简单的 % 和 _）
         return simpleLikeMatch(value, patternStr, caseSensitive);
     }
 
@@ -168,10 +167,10 @@ public class Like implements Expression {
         return i == patternLen && j == valueLen;
     }
 
-    private Comparable evaluateExpression(Expression expr, Map<String, Comparable> row) {
+    private Comparable evaluateExpression(Expression expr, RecordView row) {
         if (expr instanceof ColumnRef) {
             String columnName = ((ColumnRef) expr).columnName();
-            return row.get(columnName);
+            return row.comparableField(columnName);
         } else if (expr instanceof Literal) {
             return ((Literal) expr).getValue();
         }

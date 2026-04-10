@@ -19,8 +19,8 @@
  */
 package io.github.ximin.xlake.writer;
 
-import io.github.ximin.xlake.table.KvRecord;
-import io.github.ximin.xlake.backend.LmdbInstance;
+import io.github.ximin.xlake.storage.lmdb.LmdbInstance;
+import io.github.ximin.xlake.storage.table.record.KvRecord;
 import io.github.ximin.xlake.table.op.Write;
 import lombok.extern.slf4j.Slf4j;
 import org.lmdbjava.Dbi;
@@ -202,7 +202,6 @@ public class LmdbWriter implements Writer<KvRecord> {
     public void close() throws IOException {
         if (!closed) {
             flush();
-            instance.close();
             closed = true;
         }
     }

@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.backend.query;
 
+import io.github.ximin.xlake.table.record.RecordView;
+
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -75,17 +77,16 @@ public abstract class BinaryComparison implements BinaryExpression {
         return right;
     }
 
-    protected Comparable evaluateSide(Expression expr, Map<String, Comparable> row) {
-        if (expr instanceof ColumnRef) {
-            String columnName = ((ColumnRef) expr).columnName();
-            return row.get(columnName);
-        } else if (expr instanceof Literal) {
-            return ((Literal) expr).getValue();
-        } else {
-            // 对于复杂表达式，尝试求值，这里简化处理，实际实现需要更完整的求值逻辑
-            throw new UnsupportedOperationException(
-                    "Complex expressions not supported in this context");
+    @Override
+    public boolean evaluate(RecordView row) {
+        Comparable leftVal = evaluateSide(left, row);
+        Comparable rightVal = evaluateSide(right, row);
+
+        if (leftVal == null || rightVal == null) {
+            return false;
         }
+
+        return compare(leftVal, rightVal);
     }
 
     @Override
@@ -109,6 +110,18 @@ public abstract class BinaryComparison implements BinaryExpression {
                     .newInstance(left.copy(), right.copy());
         } catch (Exception e) {
             throw new RuntimeException("Failed to copy expression", e);
+        }
+    }
+
+    protected Comparable evaluateSide(Expression expr, RecordView row) {
+        if (expr instanceof ColumnRef) {
+            String columnName = ((ColumnRef) expr).columnName();
+            return row.comparableField(columnName);
+        } else if (expr instanceof Literal) {
+            return ((Literal) expr).getValue();
+        } else {
+            throw new UnsupportedOperationException(
+                    "Complex expressions not supported in this context");
         }
     }
 }

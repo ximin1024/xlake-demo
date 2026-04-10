@@ -21,7 +21,7 @@ package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.table.XlakeTable;
 
-public abstract class AbstractOp implements Op {
+public abstract class AbstractOp<R extends OpResult> implements Op<R> {
     protected final XlakeTable table;
 
     protected AbstractOp(XlakeTable table) {

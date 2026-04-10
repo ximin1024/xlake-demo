@@ -21,24 +21,27 @@ package io.github.ximin.xlake.table.op;
 
 import io.github.ximin.xlake.backend.query.Expression;
 import io.github.ximin.xlake.writer.Writer;
+import io.github.ximin.xlake.table.XlakeTable;
 
 import java.util.Properties;
 
 public class Delete implements Write {
-    private final static String TYPE = "DELETE";
+    private final static OpType TYPE = OpType.DELETE;
 
+    private final XlakeTable table;
     private final Expression condition;
     private final Writer writer;
     private final Properties config;
 
-    public Delete(Expression condition, Writer writer, Properties config) {
+    public Delete(XlakeTable table, Expression condition, Writer writer, Properties config) {
+        this.table = table;
         this.condition = condition;
         this.writer = writer;
         this.config = config;
     }
 
     @Override
-    public OpResult exec() {
+    public Write.Result exec() {
         try {
             writer.init(config);
 
@@ -46,9 +49,9 @@ public class Delete implements Write {
 
             writer.flush();
 
-            return new WriteResult(true, "Deleted " + deletedCount + " records", null, System.currentTimeMillis(), deletedCount);
+            return Result.ok("Deleted " + deletedCount + " records", deletedCount);
         } catch (Exception e) {
-            return new WriteResult(false, "Delete failed: " + e.getMessage(), e, System.currentTimeMillis(), 0);
+            return Result.error("Delete failed: " + e.getMessage(), e);
         } finally {
             try {
                 writer.close();
@@ -62,7 +65,7 @@ public class Delete implements Write {
     }
 
     @Override
-    public String type() {
+    public OpType type() {
         return TYPE;
     }
 
@@ -79,21 +82,30 @@ public class Delete implements Write {
         return new Builder();
     }
 
-    public static class Builder {
+    public static class Builder implements WriteBuilder<Delete, Builder> {
+        private XlakeTable table;
         private Expression condition;
         private Writer writer;
         private Properties config = new Properties();
+
+        @Override
+        public Builder withTable(XlakeTable table) {
+            this.table = table;
+            return this;
+        }
 
         public Builder withCondition(Expression condition) {
             this.condition = condition;
             return this;
         }
 
+        @Override
         public Builder withWriter(Writer writer) {
             this.writer = writer;
             return this;
         }
 
+        @Override
         public Builder withConfig(Properties config) {
             this.config = config;
             return this;
@@ -104,6 +116,12 @@ public class Delete implements Write {
             return this;
         }
 
+        @Override
+        public XlakeTable table() {
+            return table;
+        }
+
+        @Override
         public Delete build() {
             if (condition == null) {
                 throw new IllegalStateException("condition must be set");
@@ -111,7 +129,7 @@ public class Delete implements Write {
             if (writer == null) {
                 throw new IllegalStateException("writer must be set");
             }
-            return new Delete(condition, writer, config);
+            return new Delete(table, condition, writer, config);
         }
     }
 }

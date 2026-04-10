@@ -29,39 +29,6 @@ public class GtEq extends BinaryComparison {
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        // 处理 null 值
-        if (left instanceof ColumnRef && right instanceof Literal) {
-            String column = ((ColumnRef) left).columnName();
-            Comparable value = ((Literal) right).getValue();
-
-            if (!row.containsKey(column)) {
-                return false;
-            }
-
-            Comparable rowValue = row.get(column);
-
-            // 如果行值或查询值为 null，返回 false
-            if (rowValue == null || value == null) {
-                return false;
-            }
-
-            return rowValue.compareTo(value) >= 0;
-        }
-
-        // 通用实现
-        Comparable leftVal = evaluateSide(left, row);
-        Comparable rightVal = evaluateSide(right, row);
-
-        // 如果任一值为 null，返回 false
-        if (leftVal == null || rightVal == null) {
-            return false;
-        }
-
-        return leftVal.compareTo(rightVal) >= 0;
-    }
-
-    @Override
     protected boolean compare(Comparable left, Comparable right) {
         // 如果任一值为 null，返回 false
         if (left == null || right == null) {

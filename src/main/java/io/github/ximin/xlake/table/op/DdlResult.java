@@ -23,7 +23,7 @@ import java.util.Optional;
 
 public interface DdlResult extends OpResult {
 
-    String operationType();
+    OpType operationType();
 
     Optional<String> previousState();
 
@@ -57,7 +57,7 @@ public interface DdlResult extends OpResult {
         public long timestamp() { return timestamp; }
 
         @Override
-        public String operationType() { return "CREATE_TABLE"; }
+        public OpType operationType() { return OpType.CREATE_TABLE; }
 
         @Override
         public Optional<String> previousState() { return Optional.empty(); }
@@ -101,7 +101,7 @@ public interface DdlResult extends OpResult {
         public long timestamp() { return timestamp; }
 
         @Override
-        public String operationType() { return "DROP_TABLE"; }
+        public OpType operationType() { return OpType.DROP_TABLE; }
 
         @Override
         public Optional<String> previousState() { return Optional.of("Table existed: " + tableName); }
@@ -148,7 +148,7 @@ public interface DdlResult extends OpResult {
         public long timestamp() { return timestamp; }
 
         @Override
-        public String operationType() { return "ALTER_SCHEMA"; }
+        public OpType operationType() { return OpType.ALTER_SCHEMA; }
 
         @Override
         public Optional<String> previousState() { return Optional.of("Schema version: " + previousSchemaVersion); }
@@ -196,7 +196,7 @@ public interface DdlResult extends OpResult {
         public long timestamp() { return timestamp; }
 
         @Override
-        public String operationType() { return "REFRESH"; }
+        public OpType operationType() { return OpType.REFRESH; }
 
         @Override
         public Optional<String> previousState() { return Optional.of("Snapshot ID: " + snapshotIdBefore); }

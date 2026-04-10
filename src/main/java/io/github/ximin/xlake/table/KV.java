@@ -19,7 +19,7 @@
  */
 package io.github.ximin.xlake.table;
 
-public interface KV<K extends Comparable<K>, V> extends Record, Comparable<KV<K, V>> {
+public interface KV<K extends Comparable<K>, V> extends Comparable<KV<K, V>> {
 
     byte[] key();
 

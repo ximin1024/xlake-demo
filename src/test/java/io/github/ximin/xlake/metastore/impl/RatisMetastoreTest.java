@@ -42,6 +42,8 @@ class RatisMetastoreTest {
     Path tempDir;
 
     private RatisMetastore metastore;
+    private static final String CATALOG = "default";
+    private static final String DATABASE = "default";
 
     @BeforeEach
     void setUp() {
@@ -50,30 +52,49 @@ class RatisMetastoreTest {
         // In a real scenario, this would use embedded Ratis servers
         metastore = new RatisMetastore(null) {
             // Override to use in-memory storage for testing
-            private final java.util.Map<byte[], byte[]> storage = new java.util.concurrent.ConcurrentHashMap<>();
+            private final java.util.Map<String, byte[]> storage = new java.util.concurrent.ConcurrentHashMap<>();
+            private volatile boolean open = true;
 
             @Override
             protected void kvPut(byte[] key, byte[] value) throws IOException {
-                storage.put(key, value);
+                if (!open) {
+                    throw new IOException("Metastore is closed");
+                }
+                storage.put(new String(key, java.nio.charset.StandardCharsets.UTF_8), value);
             }
 
             @Override
             protected Optional<byte[]> kvGet(byte[] key) throws IOException {
-                return Optional.ofNullable(storage.get(key));
+                if (!open) {
+                    throw new IOException("Metastore is closed");
+                }
+                return Optional.ofNullable(storage.get(new String(key, java.nio.charset.StandardCharsets.UTF_8)));
             }
 
             @Override
             protected void kvDelete(byte[] key) throws IOException {
-                storage.remove(key);
+                if (!open) {
+                    throw new IOException("Metastore is closed");
+                }
+                storage.remove(new String(key, java.nio.charset.StandardCharsets.UTF_8));
             }
 
             @Override
             protected List<byte[]> kvScanByPrefix(byte[] prefix) throws IOException {
-                String prefixStr = new String(prefix);
+                if (!open) {
+                    throw new IOException("Metastore is closed");
+                }
+                String prefixStr = new String(prefix, java.nio.charset.StandardCharsets.UTF_8);
                 return storage.entrySet().stream()
-                        .filter(entry -> new String(entry.getKey()).startsWith(prefixStr))
+                        .filter(entry -> entry.getKey().startsWith(prefixStr))
                         .map(java.util.Map.Entry::getValue)
-                        .collect(java.util.stream.Collectors.toList());
+                        .toList();
+            }
+
+            @Override
+            public void close() throws IOException {
+                open = false;
+                super.close();
             }
         };
     }
@@ -87,65 +108,85 @@ class RatisMetastoreTest {
 
     @Test
     void shouldCreateAndGetTable() throws IOException {
-        PbFileMetadata metadata = PbFileMetadata.newBuilder()
-                .setTableName("test_table")
-                .setSchema(Schema.newBuilder()
-                        .setStructType(StructType.newBuilder().build())
+        PbTableMetadata metadata = PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("test_table")
                         .build())
+                .setSchema(PbSchema.newBuilder()
+                        .setStructType(PbStructType.newBuilder().build())
+                        .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                 .build();
 
         metastore.createTable(metadata);
-        Optional<PbFileMetadata> retrieved = metastore.getTable("test_table");
+        Optional<PbTableMetadata> retrieved = metastore.getTable(CATALOG, DATABASE, "test_table");
 
         assertThat(retrieved).isPresent();
-        assertThat(retrieved.get().getTableName()).isEqualTo("test_table");
+        assertThat(retrieved.get().getIdentifier().getTable()).isEqualTo("test_table");
     }
 
     @Test
     void shouldReturnEmptyForNonExistentTable() throws IOException {
-        Optional<PbFileMetadata> result = metastore.getTable("non_existent_table");
+        Optional<PbTableMetadata> result = metastore.getTable(CATALOG, DATABASE, "non_existent_table");
         assertThat(result).isEmpty();
     }
 
     @Test
     void shouldDropTable() throws IOException {
-        PbFileMetadata metadata = PbFileMetadata.newBuilder()
-                .setTableName("table_to_drop")
-                .setSchema(Schema.newBuilder()
-                        .setStructType(StructType.newBuilder().build())
+        PbTableMetadata metadata = PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("table_to_drop")
                         .build())
+                .setSchema(PbSchema.newBuilder()
+                        .setStructType(PbStructType.newBuilder().build())
+                        .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                 .build();
 
         metastore.createTable(metadata);
-        assertThat(metastore.getTable("table_to_drop")).isPresent();
+        assertThat(metastore.getTable(CATALOG, DATABASE, "table_to_drop")).isPresent();
 
-        metastore.dropTable("table_to_drop");
-        assertThat(metastore.getTable("table_to_drop")).isEmpty();
+        metastore.dropTable(CATALOG, DATABASE, "table_to_drop");
+        assertThat(metastore.getTable(CATALOG, DATABASE, "table_to_drop")).isEmpty();
     }
 
     @Test
     void shouldListTables() throws IOException {
-        metastore.createTable(PbFileMetadata.newBuilder()
-                .setTableName("table1")
-                .setSchema(Schema.newBuilder()
-                        .setStructType(StructType.newBuilder().build())
+        metastore.createTable(PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("table1")
                         .build())
+                .setSchema(PbSchema.newBuilder()
+                        .setStructType(PbStructType.newBuilder().build())
+                        .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                 .build());
-        metastore.createTable(PbFileMetadata.newBuilder()
-                .setTableName("table2")
-                .setSchema(Schema.newBuilder()
-                        .setStructType(StructType.newBuilder().build())
+        metastore.createTable(PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("table2")
                         .build())
+                .setSchema(PbSchema.newBuilder()
+                        .setStructType(PbStructType.newBuilder().build())
+                        .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                 .build());
 
-        List<String> tables = metastore.listTables();
+        List<String> tables = metastore.listTables(CATALOG, DATABASE);
 
         assertThat(tables).hasSize(2);
         assertThat(tables).contains("table1", "table2");
     }
 
     @Test
-    void shouldHandlePbFileMetadataOperations() throws IOException {
+    void shouldHandleFileMetadataOperations() throws IOException {
         PbFileMetadata fileMeta = PbFileMetadata.newBuilder()
                 .setTableName("test_table")
                 .setFilePath("/path/to/file.parquet")
@@ -181,48 +222,48 @@ class RatisMetastoreTest {
 
     @Test
     void shouldHandleUpdateEntries() throws IOException {
-        UpdateEntry entry = UpdateEntry.newBuilder()
+        PbUpdateEntry entry = PbUpdateEntry.newBuilder()
                 .setEntryId("entry-1")
                 .setTableName("test_table")
                 .setPredicate(ProtoExpressionSerializer.toProto(ExpressionBuilder.eq("id",1)))
                 .build();
 
         metastore.putUpdateEntry(entry);
-        Optional<UpdateEntry> retrieved = metastore.getUpdateEntry("entry-1");
+        Optional<PbUpdateEntry> retrieved = metastore.getUpdateEntry("entry-1");
 
         assertThat(retrieved).isPresent();
         assertThat(retrieved.get().getTableName()).isEqualTo("test_table");
-        assertThat(retrieved.get().getPredicate()).isEqualTo(ExpressionConverter.toProto(ExpressionBuilder.eq("id", 1)));
+        assertThat(retrieved.get().getPredicate()).isEqualTo(ProtoExpressionSerializer.toProto(ExpressionBuilder.eq("id", 1)));
     }
 
     @Test
     void shouldGetUpdateEntriesByTable() throws IOException {
-        metastore.putUpdateEntry(UpdateEntry.newBuilder()
+        metastore.putUpdateEntry(PbUpdateEntry.newBuilder()
                 .setEntryId("entry-1")
                 .setTableName("table1")
-                .setPredicate(ExpressionConverter.toProto(ExpressionBuilder.eq("id",1)))
+                .setPredicate(ProtoExpressionSerializer.toProto(ExpressionBuilder.eq("id", 1)))
                 .build());
-        metastore.putUpdateEntry(UpdateEntry.newBuilder()
+        metastore.putUpdateEntry(PbUpdateEntry.newBuilder()
                 .setEntryId("entry-2")
                 .setTableName("table1")
-                .setPredicate(ExpressionConverter.toProto(ExpressionBuilder.eq("id",2)))
+                .setPredicate(ProtoExpressionSerializer.toProto(ExpressionBuilder.eq("id", 2)))
                 .build());
-        metastore.putUpdateEntry(UpdateEntry.newBuilder()
+        metastore.putUpdateEntry(PbUpdateEntry.newBuilder()
                 .setEntryId("entry-3")
                 .setTableName("table2")
-                .setPredicate(ExpressionConverter.toProto(ExpressionBuilder.eq("id",3)))
+                .setPredicate(ProtoExpressionSerializer.toProto(ExpressionBuilder.eq("id", 3)))
                 .build());
 
-        List<UpdateEntry> entries = metastore.getUpdateEntries("table1");
+        List<PbUpdateEntry> entries = metastore.getUpdateEntries("table1");
 
         assertThat(entries).hasSize(2);
-        assertThat(entries).extracting(UpdateEntry::getEntryId)
+        assertThat(entries).extracting(PbUpdateEntry::getEntryId)
                 .contains("entry-1", "entry-2");
     }
 
     @Test
     void shouldDeleteUpdateEntry() throws IOException {
-        UpdateEntry entry = UpdateEntry.newBuilder()
+        PbUpdateEntry entry = PbUpdateEntry.newBuilder()
                 .setEntryId("entry-to-delete")
                 .setTableName("test_table")
                 .build();
@@ -236,11 +277,23 @@ class RatisMetastoreTest {
 
     @Test
     void shouldHandleSnapshotOperations() throws IOException {
-        long snapshotId = metastore.createSnapshot("test_table", "CREATE", "Initial snapshot");
+        metastore.createTable(PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("test_table")
+                        .build())
+                .setSchema(PbSchema.newBuilder()
+                        .setStructType(PbStructType.newBuilder().build())
+                        .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
+                .build());
+
+        long snapshotId = metastore.createSnapshot(CATALOG, DATABASE, "test_table", "CREATE", "Initial snapshot");
 
         assertThat(snapshotId).isGreaterThan(0);
 
-        Optional<Snapshot> snapshot = metastore.getSnapshot("test_table", snapshotId);
+        Optional<PbSnapshot> snapshot = metastore.getSnapshot(CATALOG, DATABASE, "test_table", snapshotId);
         assertThat(snapshot).isPresent();
         assertThat(snapshot.get().getOperation()).isEqualTo("CREATE");
         assertThat(snapshot.get().getSummary()).isEqualTo("Initial snapshot");
@@ -248,19 +301,31 @@ class RatisMetastoreTest {
 
     @Test
     void shouldListSnapshots() throws IOException {
-        metastore.createSnapshot("test_table", "CREATE", "Snapshot 1");
-        metastore.createSnapshot("test_table", "UPDATE", "Snapshot 2");
+        metastore.createTable(PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("test_table")
+                        .build())
+                .setSchema(PbSchema.newBuilder()
+                        .setStructType(PbStructType.newBuilder().build())
+                        .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
+                .build());
 
-        List<Snapshot> snapshots = metastore.getSnapshots("test_table");
+        metastore.createSnapshot(CATALOG, DATABASE, "test_table", "CREATE", "Snapshot 1");
+        metastore.createSnapshot(CATALOG, DATABASE, "test_table", "UPDATE", "Snapshot 2");
+
+        List<PbSnapshot> snapshots = metastore.getSnapshots(CATALOG, DATABASE, "test_table");
 
         assertThat(snapshots).hasSize(2);
-        assertThat(snapshots).extracting(Snapshot::getOperation)
+        assertThat(snapshots).extracting(PbSnapshot::getOperation)
                 .contains("CREATE", "UPDATE");
     }
 
     @Test
     void shouldHandleTransactionOperations() throws IOException {
-        TableOperation operation = TableOperation.newBuilder()
+        PbTableOperation operation = PbTableOperation.newBuilder()
                 .setTableName("test_table")
                 .setOperationType("INSERT")
                 .build();
@@ -275,7 +340,7 @@ class RatisMetastoreTest {
 
     @Test
     void shouldHandleAbortTransaction() throws IOException {
-        TableOperation operation = TableOperation.newBuilder()
+        PbTableOperation operation = PbTableOperation.newBuilder()
                 .setTableName("test_table")
                 .setOperationType("INSERT")
                 .build();
@@ -290,57 +355,61 @@ class RatisMetastoreTest {
     void shouldThrowExceptionWhenClosed() throws IOException {
         metastore.close();
 
-        assertThatThrownBy(() -> metastore.getTable("test_table"))
+        assertThatThrownBy(() -> metastore.getTable(CATALOG, DATABASE, "test_table"))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("Metastore is closed");
     }
 
     @Test
     void shouldHandleEmptyLists() throws IOException {
-        List<String> tables = metastore.listTables();
+        List<String> tables = metastore.listTables(CATALOG, DATABASE);
         assertThat(tables).isEmpty();
 
         List<PbFileMetadata> files = metastore.listFiles("non_existent_table");
         assertThat(files).isEmpty();
 
-        List<UpdateEntry> entries = metastore.getUpdateEntries("non_existent_table");
+        List<PbUpdateEntry> entries = metastore.getUpdateEntries("non_existent_table");
         assertThat(entries).isEmpty();
 
-        List<Snapshot> snapshots = metastore.getSnapshots("non_existent_table");
+        List<PbSnapshot> snapshots = metastore.getSnapshots(CATALOG, DATABASE, "non_existent_table");
         assertThat(snapshots).isEmpty();
     }
 
     @Test
     void shouldAlterTable() throws IOException {
-        Schema originalSchema = Schema.newBuilder()
-                .setStructType(StructType.newBuilder()
-                        .addFields(StructField.newBuilder()
-                                .setFieldName("id").setDataType(DataType.newBuilder()
+        PbSchema originalSchema = PbSchema.newBuilder()
+                .setStructType(PbStructType.newBuilder()
+                        .addFields(PbStructField.newBuilder()
+                                .setFieldName("id").setDataType(PbDataType.newBuilder()
                                         .setPrimitiveType(PrimitiveType.INT32))).build())
                 .build();
-        PbFileMetadata metadata = PbFileMetadata.newBuilder()
-                .setTableName("test_table")
+        PbTableMetadata metadata = PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("test_table")
+                        .build())
                 .setSchema(originalSchema)
-                .setCurrentSnapshot(Snapshot.newBuilder().setSnapshotId(0).build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                 .build();
         metastore.createTable(metadata);
 
-        Schema newSchema = Schema.newBuilder()
-                .setStructType(StructType.newBuilder()
-                        .addFields(StructField.newBuilder()
-                                .setFieldName("id").setDataType(DataType.newBuilder()
+        PbSchema newSchema = PbSchema.newBuilder()
+                .setStructType(PbStructType.newBuilder()
+                        .addFields(PbStructField.newBuilder()
+                                .setFieldName("id").setDataType(PbDataType.newBuilder()
                                         .setPrimitiveType(PrimitiveType.INT32)))
-                        .addFields(StructField.newBuilder()
-                                .setFieldName("name").setDataType(DataType.newBuilder()
+                        .addFields(PbStructField.newBuilder()
+                                .setFieldName("name").setDataType(PbDataType.newBuilder()
                                         .setPrimitiveType(PrimitiveType.STRING)))
-                        .addFields(StructField.newBuilder()
-                                .setFieldName("age").setDataType(DataType.newBuilder()
+                        .addFields(PbStructField.newBuilder()
+                                .setFieldName("age").setDataType(PbDataType.newBuilder()
                                         .setPrimitiveType(PrimitiveType.INT32)))
                         .build())
                 .build();
-        metastore.alterTable("test_table", newSchema);
+        metastore.alterTable(CATALOG, DATABASE, "test_table", newSchema);
 
-        Optional<PbFileMetadata> updated = metastore.getTable("test_table");
+        Optional<PbTableMetadata> updated = metastore.getTable(CATALOG, DATABASE, "test_table");
         assertThat(updated).isPresent();
         assertThat(updated.get().getSchema().getStructType().getFieldsList()).hasSize(3);
         assertThat(updated.get().getSchema().getStructType().getFields(1).getFieldName()).isEqualTo("name");
@@ -349,7 +418,7 @@ class RatisMetastoreTest {
 
     @Test
     void shouldThrowWhenAlteringNonExistentTable() {
-        assertThatThrownBy(() -> metastore.alterTable("non_existent",
+        assertThatThrownBy(() -> metastore.alterTable(CATALOG, DATABASE, "non_existent",
                 PbSchema.newBuilder()
                         .setStructType(PbStructType.newBuilder().build())
                         .build()))
@@ -359,11 +428,16 @@ class RatisMetastoreTest {
 
     @Test
     void shouldThrowWhenCreatingDuplicateTable() throws IOException {
-        PbFileMetadata metadata = PbFileMetadata.newBuilder()
-                .setTableName("dup_table")
+        PbTableMetadata metadata = PbTableMetadata.newBuilder()
+                .setIdentifier(PbTableIdentifier.newBuilder()
+                        .setCatalog(CATALOG)
+                        .setDatabase(DATABASE)
+                        .setTable("dup_table")
+                        .build())
                 .setSchema(PbSchema.newBuilder()
                         .setStructType(PbStructType.newBuilder().build())
                         .build())
+                .setCurrentSnapshot(PbSnapshot.newBuilder().setSnapshotId(0).build())
                 .build();
         metastore.createTable(metadata);
 
@@ -374,7 +448,7 @@ class RatisMetastoreTest {
 
     @Test
     void shouldThrowWhenDroppingNonExistentTable() {
-        assertThatThrownBy(() -> metastore.dropTable("non_existent"))
+        assertThatThrownBy(() -> metastore.dropTable(CATALOG, DATABASE, "non_existent"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Table not found");
     }

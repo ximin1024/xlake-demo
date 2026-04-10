@@ -29,46 +29,6 @@ public class NotEq extends BinaryComparison {
     }
 
     @Override
-    public boolean evaluate(Map<String, Comparable> row) {
-        // 处理 null 值
-        if (left instanceof ColumnRef && right instanceof Literal) {
-            String column = ((ColumnRef) left).columnName();
-            Comparable value = ((Literal) right).getValue();
-
-            if (!row.containsKey(column)) {
-                return false;
-            }
-
-            Comparable rowValue = row.get(column);
-
-            // 如果查询值为 null
-            if (value == null) {
-                return rowValue != null;
-            }
-
-            // 行值为 null，查询值不为 null，返回 true
-            if (rowValue == null) {
-                return true;
-            }
-
-            return !rowValue.equals(value);
-        }
-
-        Comparable leftVal = evaluateSide(left, row);
-        Comparable rightVal = evaluateSide(right, row);
-
-        if (leftVal == null && rightVal == null) {
-            return false;
-        }
-
-        if (leftVal == null || rightVal == null) {
-            return true;
-        }
-
-        return !leftVal.equals(rightVal);
-    }
-
-    @Override
     protected boolean compare(Comparable left, Comparable right) {
         if (left == null && right == null) {
             return false;
