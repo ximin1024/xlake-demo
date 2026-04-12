@@ -19,31 +19,50 @@
  */
 package io.github.ximin.xlake.table.op;
 
+import io.github.ximin.xlake.storage.table.record.KvRecord;
+import io.github.ximin.xlake.table.record.RecordConverter;
 import io.github.ximin.xlake.writer.Writer;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Properties;
 
-public abstract class BatchWrite extends AbstractWrite {
-    protected final Collection data;
+public class BatchWrite extends AbstractWrite {
+    private final static OpType TYPE = OpType.BATCH_WRITE;
+    protected final Collection<?> data;
 
-    public BatchWrite(Writer writer, Properties config, Collection data) {
+    public BatchWrite(Writer writer, Properties config, Collection<?> data) {
         super(writer, config);
         this.data = data;
     }
 
     @Override
     protected void doWrite() throws Exception {
-        Write.Result result = writer.batchWrite(data);
+        List<KvRecord> records = RecordConverter.convertFromCollection(data);
 
-        // 如果 Writer 不支持批量接口，降级为逐条写入
+        if (records.isEmpty()) {
+            return;
+        }
+
+        Write.Result result = writer.batchWrite(records);
+
         if (result == null) {
-            for (Object item : data) {
-                Write.Result singleResult = writer.write(item);
+            for (KvRecord record : records) {
+                Write.Result singleResult = writer.write(record);
                 if (!singleResult.success()) {
                     throw new RuntimeException("Record write failed: " + singleResult.message());
                 }
             }
         }
+    }
+
+    @Override
+    public OpType type() {
+        return TYPE;
+    }
+
+    public Insert.Result execAsInsert() {
+        Write.Result result = super.exec();
+        return new Insert.Result(result.success(), result.count(), result.message().orElse(null));
     }
 }

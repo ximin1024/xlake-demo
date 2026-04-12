@@ -7,9 +7,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,7 +24,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Policy;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.base.Throwables;
-import com.ibm.icu.impl.Pair;
 import io.github.ximin.xlake.common.SingletonContainer;
 import io.github.ximin.xlake.storage.flush.DefaultFlushCoordinator;
 import io.github.ximin.xlake.storage.flush.FlushCoordinator;
@@ -46,6 +45,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -56,11 +56,37 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
-import static io.github.ximin.xlake.common.FileUtils.findMatchingPaths;
 import static io.github.ximin.xlake.storage.lmdb.LmdbInstance.generateInstanceId;
 
 @Slf4j
 public class DynamicMmapStore {
+    public record RoutingOwnerContext(String executorId, long epoch) {
+        public RoutingOwnerContext {
+            if (executorId == null || executorId.isBlank()) {
+                throw new IllegalArgumentException("executorId must not be blank");
+            }
+            if (epoch < 0) {
+                throw new IllegalArgumentException("epoch must be non-negative");
+            }
+        }
+
+        public String leaseOwnerId() {
+            return LmdbInstance.routingOwnerId(executorId, epoch);
+        }
+    }
+
+    public static class RecoverableWriteException extends RuntimeException {
+        public RecoverableWriteException(String message) {
+            super(message);
+        }
+    }
+
+    public static final class LeaseUnavailableException extends RecoverableWriteException {
+        public LeaseUnavailableException(String message) {
+            super(message);
+        }
+    }
+
     private final String basePath;
     private final long instanceMappedBytes;
     //private final Arena arena;
@@ -135,6 +161,10 @@ public class DynamicMmapStore {
                 // TODO: RPC call to Driver MetaStore to update Partition -> File mapping
             }
         };
+    }
+
+    private DynamicMmapStore(String basePath, String id) {
+        this(basePath);
     }
 
     public StoreState currentState() {
@@ -268,59 +298,55 @@ public class DynamicMmapStore {
         if (!Files.exists(baseDir)) {
             return;
         }
-        // tableIdentifier, lmdbPath
-        List<Pair<String, Path>> matchingPaths;
-        try {
-            matchingPaths = findMatchingPaths(basePath)
-                    .stream()
-                    .map(path -> Pair.of(path.getFileName().toString().split("-")[1], path)).toList();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        matchingPaths.forEach(pair -> {
-            String tableIdentifier = pair.first;
-            try (var instancePaths = Files.list(pair.second)) {
-                instancePaths.forEach(path -> {
-                    String instanceId = path.getFileName().toString();
-                    if (instanceId.startsWith("inst-")) {
+        try (var instancePaths = Files.walk(baseDir, 2)) {
+            instancePaths
+                    .filter(Files::isDirectory)
+                    .filter(path -> path.getFileName().toString().startsWith("inst-"))
+                    .sorted(Comparator.naturalOrder())
+                    .forEach(path -> {
+                        String instanceId = path.getFileName().toString();
+                        String tableIdentifier = parseTableIdentifier(instanceId);
                         try {
                             if (!checkMemoryAvailable()) {
                                 triggerFlushSync();
                                 if (!checkMemoryAvailable()) {
                                     log.error("Still no memory after flush. Skip loading {}", instanceId);
+                                    return;
                                 }
-                            } else {
-                                LmdbInstance instance = new LmdbInstance(
-                                        instanceId, path, instanceMappedBytes);
-                                addMemory(instance.getTotalUsageSize());
-                                instances.put(instanceId, CompletableFuture.completedFuture(instanceId));
-                                TableStore tableStore = new TableStore(tableIdentifier, writableNum);
-                                if (instance.readOnly()) {
-                                    tableStore.addReadOnlyInstance(instance);
-                                } else {
-                                    if (tableStore.remainingWritable() < writableNum) {
-                                        tableStore.addWritableInstance(instance);
-                                    } else {
-                                        instance.markAsReadOnly();
-                                        tableStore.addReadOnlyInstance(instance);
-                                        log.warn("Max writable limit reached. Loaded instance {} as read-only.", instanceId);
-                                    }
-                                    tableStore.addWritableInstance(instance);
-                                }
-                                tableStores.put(tableIdentifier, tableStore);
-                                log.info("Loaded existing instance: {}", instanceId);
                             }
+                            LmdbInstance instance = new LmdbInstance(instanceId, path.getParent(), instanceMappedBytes);
+                            addMemory(instance.getTotalUsageSize());
+                            instances.put(instanceId, CompletableFuture.completedFuture(instanceId));
+
+                            TableStore tableStore = tableStores.computeIfAbsent(
+                                    tableIdentifier,
+                                    t -> new TableStore(t, writableNum)
+                            );
+
+                            if (instance.readOnly()) {
+                                tableStore.addReadOnlyInstance(instance);
+                            } else if (tableStore.remainingWritable() < writableNum) {
+                                tableStore.addWritableInstance(instance);
+                            } else {
+                                instance.markAsReadOnly();
+                                tableStore.addReadOnlyInstance(instance);
+                                log.warn("Max writable limit reached. Loaded instance {} as read-only.", instanceId);
+                            }
+                            log.info("Loaded existing instance: {}", instanceId);
                         } catch (Exception e) {
                             log.error("Failed to load instance: {}, exception is {}", instanceId,
                                     Throwables.getStackTraceAsString(e));
                         }
-                    }
-                });
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
+                    });
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String parseTableIdentifier(String instanceId) {
+        String rest = instanceId.substring("inst-".length());
+        int last = rest.lastIndexOf('-');
+        return last > 0 ? rest.substring(0, last) : rest;
     }
 
     private void addMemory(long byteSize) {
@@ -359,9 +385,17 @@ public class DynamicMmapStore {
         }
     }
 
+    private boolean ensureOwnerLease(LmdbInstance instance, RoutingOwnerContext ownerContext) {
+        if (ownerContext == null) {
+            // 无 owner 上下文，禁止在写路径上自动获取长期租约。由上层路由决定回退/转发。
+            return true;
+        }
+        return instance.ensureRoutingOwnerLease(ownerContext.executorId(), ownerContext.epoch());
+    }
+
     private void createNewInstance(String tableIdentifier) {
         String instanceId = generateInstanceId(tableIdentifier);
-        LmdbInstance instance = new LmdbInstance(instanceId, Paths.get(basePath), instanceMappedBytes);
+        LmdbInstance instance = new LmdbInstance(instanceId, tablePath(tableIdentifier), instanceMappedBytes);
         tableStore(tableIdentifier).addWritableInstance(instance);
         addMemory(instanceMappedBytes);
         instances.put(instanceId, CompletableFuture.completedFuture(instanceId));
@@ -444,11 +478,19 @@ public class DynamicMmapStore {
     }
 
     public void write(WriteBuilder builder) {
+        write(builder, null);
+    }
+
+    public void write(WriteBuilder builder, RoutingOwnerContext ownerContext) {
         String tableIdentifier = builder.table().uniqId();
         TableStore tableStore = tableStore(tableIdentifier);
-        LmdbInstance current = null;
-        while (current == null) {
-            current = currentLmdbInstance(tableIdentifier);
+        int attempts = 0;
+        int maxAttempts = 100;
+        while (true) {
+            if (++attempts > maxAttempts) {
+                throw new RuntimeException("Write failed for table " + tableIdentifier + " after " + maxAttempts + " attempts: instance rotation or memory pressure not resolved");
+            }
+            LmdbInstance current = currentLmdbInstance(tableIdentifier);
             if (current == null) {
                 createNewInstance(tableIdentifier);
                 continue;
@@ -459,11 +501,20 @@ public class DynamicMmapStore {
                     // 切换失败（通常是内存不足且无法立即 Flush）,简单自旋等待，或抛异常，这里选择短暂等待重试
                     LockSupport.parkNanos(100_000_000);
                 }
+                continue;
             }
-        }
 
-        if (current.tryEnterScope()) {
+            if (!current.tryEnterScope()) {
+                continue;
+            }
             try {
+                if (!ensureOwnerLease(current, ownerContext)) {
+                    current.markAsReadOnly();
+                    if (!switchToNewInstance(tableIdentifier)) {
+                        LockSupport.parkNanos(100_000_000);
+                    }
+                    continue;
+                }
                 Write.Result result;
                 try {
                     result = tableStore.write(builder, current);
@@ -479,9 +530,29 @@ public class DynamicMmapStore {
                                 a.getAndIncrement();
                                 return a;
                             });
-                } else if (LmdbWriter.MAPFULL_MESSAGE.equals(result.message().orElse(""))) {
-                    current.markAsReadOnly();
+                    return;
                 }
+
+                String message = result.message().orElse("");
+                if (LmdbWriter.MAPFULL_MESSAGE.equals(message)) {
+                    current.markAsReadOnly();
+                    if (!switchToNewInstance(tableIdentifier)) {
+                        LockSupport.parkNanos(100_000_000);
+                    }
+                    continue;
+                }
+                if (LmdbWriter.READONLY_MESSAGE.equals(message)) {
+                    if (ownerContext != null) {
+                        current.markAsReadOnly();
+                        if (!switchToNewInstance(tableIdentifier)) {
+                            LockSupport.parkNanos(100_000_000);
+                        }
+                        continue;
+                    }
+                    throw new LeaseUnavailableException("owner lease unavailable for table " + tableIdentifier
+                            + ", instance " + current.instanceId());
+                }
+                throw new RuntimeException("Write failed for table " + tableIdentifier + ": " + message);
             } finally {
                 current.exitScope();
             }
@@ -514,5 +585,9 @@ public class DynamicMmapStore {
     }
 
     public record FlushedInfo(String instanceId, String hdfsPath, boolean success, Throwable t) {
+    }
+
+    private Path tablePath(String tableIdentifier) {
+        return Paths.get(basePath).resolve(tableIdentifier);
     }
 }

@@ -44,6 +44,6 @@ public record ColdDataBlock(
             long sizeBytes,
             long minSequenceNumber,
             long maxSequenceNumber
-    ) {
+    ) implements java.io.Serializable {
     }
 }

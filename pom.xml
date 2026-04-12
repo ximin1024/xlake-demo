@@ -43,13 +43,6 @@
             <version>${spark.version}</version>
         </dependency>
 
-        <!-- lmdb -->
-        <dependency>
-            <groupId>org.lmdbjava</groupId>
-            <artifactId>lmdbjava</artifactId>
-            <version>${lmdb.version}</version>
-        </dependency>
-
         <!-- thrift (deprecated, replaced by gRPC) -->
         <!--
         <dependency>
@@ -103,6 +96,11 @@
             <groupId>com.github.jnr</groupId>
             <artifactId>jnr-ffi</artifactId>
             <version>2.2.12</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.jnr</groupId>
+            <artifactId>jnr-constants</artifactId>
+            <version>0.10.4</version>
         </dependency>
 
         <!-- Apache Ratis -->
@@ -301,7 +299,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                    <argLine>--enable-preview --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
 

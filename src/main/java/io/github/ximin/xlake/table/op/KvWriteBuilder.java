@@ -23,17 +23,24 @@ import io.github.ximin.xlake.table.XlakeTable;
 import io.github.ximin.xlake.writer.Writer;
 import lombok.Builder;
 
-@Builder
+import java.util.List;
+import java.util.Map;
+
 public class KvWriteBuilder implements WriteBuilder<KvWrite, KvWriteBuilder> {
     private XlakeTable table;
+    private List<Map<String, Object>> data;
     private byte[] key;
     private byte[] value;
     private Integer partitionHint;
     private Writer writer;
 
-    @Override
-    public KvWrite build() {
-        return new KvWrite(table, key, value, partitionHint, writer);
+    public static KvWriteBuilder builder() {
+        return new KvWriteBuilder();
+    }
+
+    public KvWriteBuilder table(XlakeTable table) {
+        this.table = table;
+        return this;
     }
 
     @Override
@@ -42,10 +49,41 @@ public class KvWriteBuilder implements WriteBuilder<KvWrite, KvWriteBuilder> {
         return this;
     }
 
+    public KvWriteBuilder withData(List<Map<String, Object>> data) {
+        this.data = data;
+        return this;
+    }
+
+    public KvWriteBuilder key(byte[] key) {
+        this.key = key;
+        return this;
+    }
+
+    public KvWriteBuilder value(byte[] value) {
+        this.value = value;
+        return this;
+    }
+
+    public KvWriteBuilder partitionHint(Integer partitionHint) {
+        this.partitionHint = partitionHint;
+        return this;
+    }
+
     @Override
     public KvWriteBuilder withWriter(Writer writer) {
         this.writer = writer;
         return this;
+    }
+
+    @Override
+    public KvWrite build() {
+        if (key != null && value != null) {
+            return new KvWrite(table, key, value, partitionHint, writer);
+        }
+        if (partitionHint != null) {
+            return new KvWrite(table, data, partitionHint, writer);
+        }
+        return new KvWrite(table, data, writer);
     }
 
     @Override

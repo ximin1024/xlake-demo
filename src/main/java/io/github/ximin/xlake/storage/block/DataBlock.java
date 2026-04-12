@@ -29,6 +29,7 @@ import java.io.Serializable;
  * 也可以对应冷层的 Parquet/ORC 文件。这里强调的是逻辑段语义，而不是某一种具体文件实现。</p>
  */
 public sealed interface DataBlock
+        extends Serializable
         permits HotDataBlock, ColdDataBlock {
 
     /**
