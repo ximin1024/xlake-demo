@@ -87,7 +87,7 @@ public interface Storage extends AutoCloseable {
      *
      * <p>使用 scheme + location 描述路径，避免上层直接依赖某个具体文件系统的 Path 类型。</p>
      */
-    record StoragePath(String scheme, String location) {
+    record StoragePath(String scheme, String location) implements java.io.Serializable {
     }
 
     /**

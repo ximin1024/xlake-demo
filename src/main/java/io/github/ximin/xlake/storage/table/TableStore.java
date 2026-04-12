@@ -42,6 +42,7 @@ import io.github.ximin.xlake.table.op.Write;
 import io.github.ximin.xlake.table.op.WriteBuilder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.spark.SparkEnv;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -243,7 +244,7 @@ public class TableStore implements TableStorage {
                 instance.readOnly() ? DataBlock.Kind.IMMUTABLE_HOT : DataBlock.Kind.MUTABLE_HOT,
                 DataBlock.Format.LMDB,
                 new DataBlock.Location(
-                        "local",
+                        resolveLocalHost(),
                         new Storage.StoragePath("file", instance.path().toString()),
                         0L,
                         instance.getTotalUsageSize()
@@ -264,6 +265,12 @@ public class TableStore implements TableStorage {
                 instance.getTotalUsageSize(),
                 instance.instanceId()
         );
+    }
+
+    private static String resolveLocalHost() {
+        return SparkEnv.get() != null && SparkEnv.get().rpcEnv() != null && SparkEnv.get().rpcEnv().address() != null
+                ? SparkEnv.get().rpcEnv().address().host()
+                : "local";
     }
 
     private static TableId parseTableId(String tableIdentifier) {

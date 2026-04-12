@@ -31,11 +31,11 @@ public interface XlakeTable extends Closeable {
     TableMeta meta();
 
     default String name() {
-        return meta().tableName();
+        return meta().fullName();
     }
 
-    default String fullName() {
-        return meta().fullName();
+    default String getTableIdentifier() {
+        return name();
     }
 
     default String uniqId() {
@@ -115,5 +115,7 @@ public interface XlakeTable extends Closeable {
     default OpResult refreshOp() {
         return null;
     }
+
+    boolean isClosed();
 }
 
