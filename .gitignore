@@ -28,6 +28,7 @@ out/
 .settings/
 .project
 .classpath
+.factorypath
 .metadata/
 
 # VS Code
