@@ -95,5 +95,8 @@ $RECYCLE.BIN/
 # Ignore all files in root that are not explicitly needed
 # (But we still want pom.xml, README, LICENSE, etc.)
 
+# OpenCode skills (local development context, should not be uploaded)
+.opencode/skills/
+
 # Others
 .java-version
