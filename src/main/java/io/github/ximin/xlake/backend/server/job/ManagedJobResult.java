@@ -17,8 +17,11 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.server;
+package io.github.ximin.xlake.backend.server.job;
 
+import lombok.Getter;
+
+@Getter
 public class ManagedJobResult {
     protected final String jobId;
     protected final String sql;
@@ -39,6 +42,10 @@ public class ManagedJobResult {
         this.startTime = startTime;
         this.endTime = endTime;
         this.error = error;
+    }
+
+    public JobStatus getStatus() {
+        return status;
     }
 
     public long getCompletionTime() {
