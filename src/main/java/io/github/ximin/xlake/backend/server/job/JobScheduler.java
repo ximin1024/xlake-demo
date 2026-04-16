@@ -17,21 +17,29 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.server;
+package io.github.ximin.xlake.backend.server.job;
 
-import lombok.Data;
-
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-@Data
-public class MetricsReport {
-    private long timestamp;
-    private long totalJobsProcessed;
-    private long totalTasksProcessed;
-    private long totalBytesProcessed;
-    private Map<JobStatus, Integer> jobStatistics;
-    private int executorCount;
-    private long averageJobDuration;
-    private double throughputBytesPerSec;
-    private double taskSuccessRate;
+public interface JobScheduler {
+
+    void start();
+
+    String submitJob(String sessionId, String sql, JobType type, Map<String, String> options);
+
+    Optional<ManagedJob> getJob(String jobId);
+
+    JobStatus getJobStatus(String jobId);
+
+    boolean cancelJob(String jobId);
+
+    ManagedJobResult getJobResult(String jobId);
+
+    List<ManagedJob> getActiveJobs();
+
+    int getQueueLength();
+
+    void shutdown();
 }

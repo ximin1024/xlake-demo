@@ -96,8 +96,15 @@ $RECYCLE.BIN/
 # Ignore all files in root that are not explicitly needed
 # (But we still want pom.xml, README, LICENSE, etc.)
 
-# OpenCode skills (local development context, should not be uploaded)
-.opencode/skills/
+# =========================
+# OpenCode / AI Assistant
+# =========================
+
+# OpenCode (local development context, should not be uploaded)
+.opencode/
+
+# LMDB temp files from testing (junit temp directories)
+/var/folders/
 
 # Others
 .java-version

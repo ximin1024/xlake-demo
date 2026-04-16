@@ -17,7 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.server;
+package io.github.ximin.xlake.backend.server.job;
 
 import lombok.Getter;
 import org.apache.spark.sql.Row;

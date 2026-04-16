@@ -17,8 +17,9 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.server;
+package io.github.ximin.xlake.backend.server.job;
 
+import io.github.ximin.xlake.backend.server.metrics.JobMetrics;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -28,17 +29,24 @@ public class ManagedJob {
     @Getter
     private final String id;
     @Getter
+    private final String sessionId;
+    @Getter
     private final String sql;
+    @Getter
+    private final JobType jobType;
     @Getter
     private final Map<String, String> options;
     @Setter
     @Getter
     private JobStatus status;
     @Setter
+    @Getter
     private long startTime;
     @Setter
+    @Getter
     private long endTime;
     @Setter
+    @Getter
     private String error;
     @Setter
     private ManagedJobResult result;
@@ -49,14 +57,24 @@ public class ManagedJob {
     private final long timeoutMs;
     private final long submitTime;
 
-    public ManagedJob(String id, String sql, Map<String, String> options) {
+    public ManagedJob(String id, String sessionId, String sql, JobType type, Map<String, String> options) {
         this.id = id;
+        this.sessionId = sessionId;
         this.sql = sql;
+        this.jobType = type;
         this.options = options;
         this.status = JobStatus.PENDING;
         this.submitTime = System.currentTimeMillis();
-        this.timeoutMs = Long.parseLong(options.getOrDefault("timeout", "3600000")); // 默认1小时
+        this.timeoutMs = parseTimeout(options);
         this.metrics = new JobMetrics();
+    }
+
+    private static long parseTimeout(Map<String, String> options) {
+        try {
+            return Long.parseLong(options.getOrDefault("timeout", "3600000"));
+        } catch (NumberFormatException e) {
+            return 3600000L;
+        }
     }
 
     public void cancel() {
@@ -73,6 +91,11 @@ public class ManagedJob {
                 System.currentTimeMillis() - startTime > timeoutMs;
     }
 
+    public boolean isPendingTimeout() {
+        return status == JobStatus.PENDING &&
+                System.currentTimeMillis() - submitTime > timeoutMs;
+    }
+
     public void timeout() {
         this.status = JobStatus.TIMEOUT;
     }
@@ -83,5 +106,9 @@ public class ManagedJob {
 
     public void updateMetrics(JobMetrics newMetrics) {
         this.metrics = newMetrics;
+    }
+
+    public ManagedJobResult getResult() {
+        return result;
     }
 }

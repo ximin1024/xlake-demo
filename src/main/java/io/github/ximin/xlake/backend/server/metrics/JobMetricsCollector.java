@@ -17,7 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.server;
+package io.github.ximin.xlake.backend.server.metrics;
 
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Meter;
@@ -25,6 +25,7 @@ import com.codahale.metrics.MetricRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.github.ximin.xlake.backend.server.job.JobStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.executor.TaskMetrics;
 import org.apache.spark.scheduler.*;
@@ -206,17 +207,17 @@ public class JobMetricsCollector extends SparkListener {
             jobData.setEndTime(jobEnd.time());
             jobData.setDuration(jobEnd.time() - jobData.getStartTime());
 
-            switch (jobEnd.jobResult()) {
-//                case JobSucceeded s -> {
-//                    jobData.setStatus(JobStatus.SUCCEEDED);
-//                    metricRegistry.counter("jobs.succeeded").inc();
-//                }
-                case JobFailed _ -> {
-                    jobData.setStatus(JobStatus.FAILED);
-                    metricRegistry.counter("jobs.failed").inc();
-                }
-                case null -> throw new IllegalArgumentException("Job result is null");
-                default -> throw new IllegalStateException("Unknown JobResult");
+            JobResult jobResult = jobEnd.jobResult();
+            if (jobResult == null) {
+                throw new IllegalArgumentException("Job result is null");
+            } else if (jobResult instanceof JobSucceeded$) {
+                jobData.setStatus(JobStatus.SUCCEEDED);
+                metricRegistry.counter("jobs.succeeded").inc();
+            } else if (jobResult instanceof JobFailed) {
+                jobData.setStatus(JobStatus.FAILED);
+                metricRegistry.counter("jobs.failed").inc();
+            } else {
+                throw new IllegalStateException("Unknown JobResult: " + jobResult.getClass().getName());
             }
 
             // 更新Histogram
@@ -432,9 +433,7 @@ public class JobMetricsCollector extends SparkListener {
         return result;
     }
 
-    /**
-     * 从Spark REST API获取更详细的Metrics
-     */
+    
     private void enrichWithSparkApiMetrics(String jobId, JobMetrics metrics) {
         try {
             // 构造Spark REST API URL
