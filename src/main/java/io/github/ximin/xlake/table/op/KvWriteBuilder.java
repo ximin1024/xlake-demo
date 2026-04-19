@@ -69,6 +69,22 @@ public class KvWriteBuilder implements WriteBuilder<KvWrite, KvWriteBuilder> {
         return this;
     }
 
+    /**
+     * Get the key for direct KV operation.
+     * @return key byte array, or null if not set
+     */
+    public byte[] key() {
+        return key;
+    }
+
+    /**
+     * Get the value for direct KV operation.
+     * @return value byte array, or null if not set
+     */
+    public byte[] value() {
+        return value;
+    }
+
     @Override
     public KvWriteBuilder withWriter(Writer writer) {
         this.writer = writer;

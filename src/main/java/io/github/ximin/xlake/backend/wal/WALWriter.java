@@ -17,26 +17,16 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.common;
+package io.github.ximin.xlake.backend.wal;
 
-import lombok.Builder;
-import lombok.Getter;
+import java.io.Closeable;
+import java.io.IOException;
 
-import java.io.Serializable;
+public interface WALWriter extends Closeable {
 
-public class Config implements Serializable {
-    public static class ReadConf implements Serializable {
+    void write(WALRecord entry) throws IOException;
 
-    }
+    void forceSync() throws IOException;
 
-    @Builder
-    @Getter
-    public static class WriteConf implements Serializable {
-        private String mmapPath;
-        private long mmapSize;
-    }
-
-    public static class CompactionConf implements Serializable {
-
-    }
+    long writtenBytes();
 }

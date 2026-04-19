@@ -25,16 +25,15 @@ import io.github.ximin.xlake.backend.read.LocalTableStoreBlockListProvider;
 import io.github.ximin.xlake.backend.read.ReadPruning;
 import io.github.ximin.xlake.backend.routing.*;
 import io.github.ximin.xlake.backend.spark.routing.*;
+import io.github.ximin.xlake.common.config.XlakeOptions;
 import io.github.ximin.xlake.storage.DynamicMmapStore;
 import io.github.ximin.xlake.storage.block.DataBlock;
 import io.github.ximin.xlake.storage.table.TableStore;
-import io.github.ximin.xlake.table.DynamicTableInfo;
-import io.github.ximin.xlake.table.XlakeTable;
-import io.github.ximin.xlake.table.Snapshot;
-import io.github.ximin.xlake.table.TableMeta;
+import io.github.ximin.xlake.table.*;
 import io.github.ximin.xlake.table.op.KvScan;
 import io.github.ximin.xlake.table.op.Scan;
 import io.github.ximin.xlake.table.record.RecordView;
+import io.github.ximin.xlake.table.schema.SparkSchemaConverter;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkEnv;
 import org.apache.spark.sql.catalyst.InternalRow;
@@ -74,7 +73,18 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
             new StructField(VALUE_COLUMN, DataTypes.StringType, true, Metadata.empty())
     });
 
-    public static boolean isXlakeTable(Table table) {
+    /**
+     * Safely get SparkConf from SparkEnv, with fallback to default values if SparkEnv is not available.
+     */
+    private static SparkConf getSparkConfOrDefault() {
+        if (SparkEnv.get() != null && SparkEnv.get().conf() != null) {
+            return SparkEnv.get().conf();
+        }
+        // Return a empty conf that will use default values
+        return new SparkConf();
+    }
+
+    public static boolean isXlakeTable(org.apache.spark.sql.connector.catalog.Table table) {
         return table instanceof XlakeSparkTable;
     }
 
@@ -84,7 +94,7 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
 
     public static int resolveShardCount(SparkConf conf) {
         Objects.requireNonNull(conf, "conf must not be null");
-        return conf.getInt("spark.xlake.routing.shardCount", 1);
+        return conf.getInt(XlakeOptions.ROUTING_SHARD_COUNT.key(), XlakeOptions.ROUTING_SHARD_COUNT.defaultValue());
     }
 
     @Override
@@ -158,15 +168,7 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
         private org.apache.spark.sql.sources.Filter[] filtersForPruning = new org.apache.spark.sql.sources.Filter[0];
 
         private XlakeScanBuilder(String basePath, String storeId, String tableIdentifier, StructType schema) {
-            this(basePath, storeId, tableIdentifier, schema, resolveBlockListProvider());
-        }
-
-        private static DataBlockListProvider resolveBlockListProvider() {
-            // planInputPartitions() runs on driver; executors use local provider for reader-side access.
-            if (SparkEnv.get() != null && "driver".equals(SparkEnv.get().executorId())) {
-                return new DriverBlockListProvider();
-            }
-            return new LocalTableStoreBlockListProvider();
+            this(basePath, storeId, tableIdentifier, schema, new LocalTableStoreBlockListProvider());
         }
 
         private XlakeScanBuilder(String basePath, String storeId, String tableIdentifier, StructType schema,
@@ -202,6 +204,8 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
                 return new InputPartition[0];
             }
 
+            TableMeta tableMeta = buildTableMeta();
+
             // 按 DataBlock.host 分组，每个 host 一个 InputPartition，确保 block 不会被重复读取。
             LinkedHashMap<String, List<DataBlock>> byHost = new LinkedHashMap<>();
             for (DataBlock block : hitBlocks) {
@@ -213,9 +217,19 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
             for (Map.Entry<String, List<DataBlock>> e : byHost.entrySet()) {
                 String host = e.getKey();
                 String[] preferred = host == null ? new String[0] : new String[]{host};
-                partitions.add(new XlakeInputPartition(preferred, e.getValue()));
+                partitions.add(new XlakeInputPartition(preferred, e.getValue(), tableMeta));
             }
             return partitions.toArray(InputPartition[]::new);
+        }
+
+        private TableMeta buildTableMeta() {
+            return TableMeta.builder()
+                    .withTableId(0L)
+                    .withTableName(tableIdentifier)
+                    .withTableType(TableMeta.TableType.PRIMARY_KEY)
+                    .withSchema(SparkSchemaConverter.toXlakeSchema(schema))
+                    .withPrimaryKey(new PrimaryKey(List.of("key")))
+                    .build();
         }
 
         @Override
@@ -238,7 +252,8 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
     }
 
     private record XlakeInputPartition(String[] preferredHosts,
-                                          List<DataBlock> blocks) implements InputPartition {
+                                          List<DataBlock> blocks,
+                                          TableMeta tableMeta) implements InputPartition {
         @Override
         public String[] preferredLocations() {
             return preferredHosts == null ? new String[0] : preferredHosts;
@@ -257,7 +272,7 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
             enforceLocalLmdbRead(p);
             DynamicMmapStore store = DynamicMmapStore.getInstance(basePath, storeId);
             TableStore tableStore = store.tableStore(tableIdentifier);
-            List<InternalRow> rows = readAll(tableStore, p.blocks());
+            List<InternalRow> rows = readAll(tableStore, p.blocks(), p.tableMeta());
             return new XlakePartitionReader(rows);
         }
 
@@ -289,8 +304,8 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
             }
         }
 
-        private List<InternalRow> readAll(TableStore tableStore, List<DataBlock> blocks) {
-            XlakeTable tableRef = new SparkXlakeTableRef(tableIdentifier);
+        private List<InternalRow> readAll(TableStore tableStore, List<DataBlock> blocks, TableMeta tableMeta) {
+            XlakeTable tableRef = new SparkXlakeTableRef(tableIdentifier, tableMeta, DynamicTableInfo.EMPTY);
             KvScan scan = KvScan.builder()
                     .withTable(tableRef)
                     .withDataBlocks(blocks == null ? List.of() : blocks)
@@ -364,7 +379,8 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
 
         @Override
         public Distribution requiredDistribution() {
-            int shardCount = SparkEnv.get().conf().getInt("spark.xlake.routing.shardCount", 1);
+            SparkConf conf = getSparkConfOrDefault();
+            int shardCount = conf.getInt(XlakeOptions.ROUTING_SHARD_COUNT.key(), XlakeOptions.ROUTING_SHARD_COUNT.defaultValue());
             if (shardCount <= 1) {
                 return Distributions.unspecified();
             }
@@ -381,7 +397,8 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
 
         @Override
         public int requiredNumPartitions() {
-            return SparkEnv.get().conf().getInt("spark.xlake.routing.shardCount", 1);
+            SparkConf conf = getSparkConfOrDefault();
+            return conf.getInt(XlakeOptions.ROUTING_SHARD_COUNT.key(), XlakeOptions.ROUTING_SHARD_COUNT.defaultValue());
         }
 
         @Override
@@ -401,20 +418,30 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
     private record XlakeDataWriterFactory(String basePath, String storeId, String tableIdentifier,
                                              StructType schema) implements DataWriterFactory {
 
+        private TableMeta tableMeta() {
+            return TableMeta.builder()
+                    .withTableId(0L)
+                    .withTableName(tableIdentifier)
+                    .withTableType(TableMeta.TableType.PRIMARY_KEY)
+                    .withSchema(SparkSchemaConverter.toXlakeSchema(schema))
+                    .withPrimaryKey(new PrimaryKey(List.of("key")))
+                    .build();
+        }
+
         @Override
         public DataWriter<InternalRow> createWriter(int partitionId, long taskId) {
             DynamicMmapStore store = DynamicMmapStore.getInstance(basePath, storeId);
-            return new XlakeDataWriter(store, basePath, storeId, tableIdentifier, partitionId);
+            return new XlakeDataWriter(store, basePath, storeId, tableIdentifier, partitionId, tableMeta());
         }
     }
 
     private static final class XlakeDataWriter implements DataWriter<InternalRow> {
-        private static final Logger log = LoggerFactory.getLogger(XlakeDataWriter.class);
         private final DynamicMmapStore store;
         private final String basePath;
         private final String storeId;
         private final String tableIdentifier;
         private final int partitionId;
+        private final TableMeta tableMeta;
         private long count;
         private final int shardCount;
         private final boolean assumePartitionIsShard;
@@ -438,22 +465,25 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
                 String basePath,
                 String storeId,
                 String tableIdentifier,
-                int partitionId
+                int partitionId,
+                TableMeta tableMeta
         ) {
             this.store = store;
             this.basePath = basePath;
             this.storeId = storeId;
             this.tableIdentifier = tableIdentifier;
             this.partitionId = partitionId;
-            this.shardCount = SparkEnv.get().conf().getInt("spark.xlake.routing.shardCount", 1);
-            this.assumePartitionIsShard = SparkEnv.get().conf()
-                    .getBoolean("spark.xlake.routing.write.assumePartitionIsShard", ASSUME_PARTITION_IS_SHARD_DEFAULT);
-            this.maxBatchRows = SparkEnv.get().conf()
-                    .getInt("spark.xlake.routing.write.batchRows", 1024);
+            this.tableMeta = tableMeta;
+            SparkConf conf = getSparkConfOrDefault();
+            this.shardCount = conf.getInt(XlakeOptions.ROUTING_SHARD_COUNT.key(), XlakeOptions.ROUTING_SHARD_COUNT.defaultValue());
+            this.assumePartitionIsShard = conf
+                    .getBoolean(XlakeOptions.ROUTING_WRITE_ASSUME_PARTITION_IS_SHARD.key(), XlakeOptions.ROUTING_WRITE_ASSUME_PARTITION_IS_SHARD.defaultValue());
+            this.maxBatchRows = conf
+                    .getInt(XlakeOptions.ROUTING_WRITE_BATCH_ROWS.key(), XlakeOptions.ROUTING_WRITE_BATCH_ROWS.defaultValue());
             this.shardResolver = new SparkMurmur3ShardResolver(shardCount);
             this.routingWriteClient = new RoutingWriteClient();
             this.shardOwnerCache = new ShardOwnerCache(routingWriteClient::lookupOwners);
-            this.currentExecutorId = SparkEnv.get().executorId();
+            this.currentExecutorId = SparkEnv.get() != null ? SparkEnv.get().executorId() : null;
             this.currentNodeId = resolveCurrentNodeId();
         }
 
@@ -509,7 +539,7 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
 
             // Lookup routing for involved shards (task-level cache; batch lookup missing shards only).
             Map<Integer, ShardLookupResult> lookups = shardOwnerCache.get(pending.keySet());
-            XlakeTable tableRef = new SparkXlakeTableRef(tableIdentifier);
+            XlakeTable tableRef = new SparkXlakeTableRef(tableIdentifier, tableMeta, DynamicTableInfo.EMPTY);
             // Use a deterministic logical batch id instead of a random UUID. We intentionally keep
             // owner-local writes on the executor-endpoint path as well, so every successful write
             // shares the same dedupe contract across same-executor, same-node, and driver fallback.
@@ -549,12 +579,18 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
                                         batch.valuesSlice()
                                 )
                         );
-                        if (directAck.status() == RoutingMessages.WriteAckStatus.OK) {
-                            count += batch.size;
-                            continue;
+                        switch (directAck.status()) {
+                            case OK:
+                                count += batch.size;
+                                continue;
+                            case RETRY:
+                            case ERROR:
+                                break;
+                            case STALE_EPOCH:
+                                break;
                         }
                     } catch (Exception ex) {
-                        log.debug("fast-path direct forward failed for shard {}, falling back", shardId, ex);
+                        // fallback to cross-node/driver forward below
                     }
                     long epoch = assignment.epoch().value();
                     for (int i = 0; i < batch.size; i++) {
@@ -705,7 +741,7 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
         }
     }
 
-    private record SparkXlakeTableRef(String uniqId) implements XlakeTable {
+    private record SparkXlakeTableRef(String uniqId, TableMeta meta, DynamicTableInfo dynamicInfo) implements XlakeTable {
 
         @Override
         public void close() {
@@ -721,13 +757,8 @@ public final class XlakeDataSource implements TableProvider, DataSourceRegister 
         }
 
         @Override
-        public TableMeta meta() {
-            return null;
-        }
-
-        @Override
         public DynamicTableInfo dynamicInfo() {
-            return null;
+            return dynamicInfo;
         }
 
         @Override

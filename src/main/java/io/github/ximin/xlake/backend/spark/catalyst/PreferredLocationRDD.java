@@ -17,7 +17,7 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.spark;
+package io.github.ximin.xlake.backend.spark.catalyst;
 
 import org.apache.spark.Partition;
 import org.apache.spark.TaskContext;

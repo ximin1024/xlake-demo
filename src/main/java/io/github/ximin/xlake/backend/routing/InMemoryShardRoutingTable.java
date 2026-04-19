@@ -113,6 +113,10 @@ public final class InMemoryShardRoutingTable implements ShardRoutingTable {
         validateExecutorId(executorId);
         writeLock.lock();
         try {
+            if (!executorToSlot.containsKey(executorId)) {
+                return;
+            }
+
             Set<ShardId> affectedShards = routings.values().stream()
                     .map(ShardLookupResult::assignment)
                     .filter(Objects::nonNull)
@@ -123,8 +127,39 @@ public final class InMemoryShardRoutingTable implements ShardRoutingTable {
             removeExecutorMapping(executorId);
 
             for (ShardId shardId : affectedShards) {
-                reassignShardUnderWriteLock(shardId);
+                reassignShardUnderWriteLock(shardId, true);
             }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    @Override
+    public List<ShardAssignment> unregisterExecutorAndCollectAssignments(String executorId) {
+        validateExecutorId(executorId);
+        writeLock.lock();
+        try {
+            if (!executorToSlot.containsKey(executorId)) {
+                return List.of();
+            }
+
+            List<ShardAssignment> collectedAssignments = routings.values().stream()
+                    .map(ShardLookupResult::assignment)
+                    .filter(Objects::nonNull)
+                    .filter(assignment -> assignment.executorId().equals(executorId))
+                    .toList();
+
+            Set<ShardId> affectedShards = collectedAssignments.stream()
+                    .map(ShardAssignment::shardId)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            removeExecutorMapping(executorId);
+
+            for (ShardId shardId : affectedShards) {
+                reassignShardUnderWriteLock(shardId, true);
+            }
+
+            return collectedAssignments;
         } finally {
             writeLock.unlock();
         }
@@ -155,7 +190,18 @@ public final class InMemoryShardRoutingTable implements ShardRoutingTable {
         Objects.requireNonNull(shardId, "shardId must not be null");
         writeLock.lock();
         try {
-            reassignShardUnderWriteLock(shardId);
+            reassignShardUnderWriteLock(shardId, false);
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    @Override
+    public void reassignShardForRecovery(ShardId shardId) {
+        Objects.requireNonNull(shardId, "shardId must not be null");
+        writeLock.lock();
+        try {
+            reassignShardUnderWriteLock(shardId, true);
         } finally {
             writeLock.unlock();
         }
@@ -207,6 +253,42 @@ public final class InMemoryShardRoutingTable implements ShardRoutingTable {
         }
     }
 
+    public boolean clearRecoveringFlag(ShardId shardId, RoutingEpoch expectedEpoch, Runnable onCleared) {
+        Objects.requireNonNull(shardId, "shardId must not be null");
+        Objects.requireNonNull(expectedEpoch, "expectedEpoch must not be null");
+        writeLock.lock();
+        try {
+            ShardLookupResult current = routings.get(shardId);
+            if (current == null || current.status() != RoutingStatus.RECOVERING) {
+                return false;
+            }
+            ShardAssignment assignment = current.assignment();
+            if (assignment == null) {
+                return false;
+            }
+            if (!assignment.epoch().equals(expectedEpoch)) {
+                return false;
+            }
+            ShardAssignment cleared = new ShardAssignment(
+                    assignment.shardId(),
+                    assignment.nodeSlot(),
+                    assignment.executorId(),
+                    assignment.epoch(),
+                    false
+            );
+            ShardLookupResult resolved = isExecutorReady(assignment.executorId())
+                    ? ShardLookupResult.assigned(cleared)
+                    : ShardLookupResult.pendingReady(cleared);
+            routings.put(shardId, resolved);
+            if (onCleared != null) {
+                onCleared.run();
+            }
+            return true;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
     private void validateExecutorPlacement(String executorId, NodeSlot nodeSlot) {
         ExecutorRegistration registration = executorToSlot.get(executorId);
         if (registration == null) {
@@ -240,7 +322,7 @@ public final class InMemoryShardRoutingTable implements ShardRoutingTable {
         }
     }
 
-    private void reassignShardUnderWriteLock(ShardId shardId) {
+    private void reassignShardUnderWriteLock(ShardId shardId, boolean recovering) {
         ShardLookupResult currentRouting = routings.get(shardId);
         ShardAssignment current = currentRouting == null ? null : currentRouting.assignment();
         NodeSlot preferred = preferredSlots.get(shardId);
@@ -260,12 +342,15 @@ public final class InMemoryShardRoutingTable implements ShardRoutingTable {
         }
         RoutingEpoch maxEpoch = maxEpochs.get(shardId);
         RoutingEpoch nextEpoch = maxEpoch == null ? RoutingEpoch.initial() : maxEpoch.next();
-        ShardAssignment assignment = new ShardAssignment(shardId, target, slotToExecutor.get(target), nextEpoch);
+        ShardAssignment assignment = new ShardAssignment(shardId, target, slotToExecutor.get(target), nextEpoch, recovering);
         maxEpochs.put(shardId, nextEpoch);
         routings.put(shardId, resolveLookupResult(assignment));
     }
 
     private ShardLookupResult resolveLookupResult(ShardAssignment assignment) {
+        if (assignment.recovering()) {
+            return ShardLookupResult.recovering(assignment);
+        }
         return isExecutorReady(assignment.executorId())
                 ? ShardLookupResult.assigned(assignment)
                 : ShardLookupResult.pendingReady(assignment);

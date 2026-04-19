@@ -21,29 +21,34 @@ package io.github.ximin.xlake.backend.routing;
 
 import java.io.Serializable;
 
-public record ShardAssignment(
+public record RecoveryCompleteMessage(
         ShardId shardId,
-        NodeSlot nodeSlot,
-        String executorId,
         RoutingEpoch epoch,
-        boolean recovering
+        boolean success,
+        String errorMessage,
+        RecoveryFailureType failureType
 ) implements Serializable {
-    public ShardAssignment {
+    public RecoveryCompleteMessage {
         if (shardId == null) {
             throw new IllegalArgumentException("shardId must not be null");
-        }
-        if (nodeSlot == null) {
-            throw new IllegalArgumentException("nodeSlot must not be null");
-        }
-        if (executorId == null || executorId.isBlank()) {
-            throw new IllegalArgumentException("executorId must not be blank");
         }
         if (epoch == null) {
             throw new IllegalArgumentException("epoch must not be null");
         }
+        if (errorMessage == null) {
+            errorMessage = "";
+        }
+        if (failureType == null) {
+            failureType = success ? null : RecoveryFailureType.UNKNOWN;
+        }
     }
 
-    public ShardAssignment(ShardId shardId, NodeSlot nodeSlot, String executorId, RoutingEpoch epoch) {
-        this(shardId, nodeSlot, executorId, epoch, false);
+    public static RecoveryCompleteMessage success(ShardId shardId, RoutingEpoch epoch) {
+        return new RecoveryCompleteMessage(shardId, epoch, true, "", null);
+    }
+
+    public static RecoveryCompleteMessage failure(ShardId shardId, RoutingEpoch epoch,
+                                                   String errorMessage, RecoveryFailureType failureType) {
+        return new RecoveryCompleteMessage(shardId, epoch, false, errorMessage, failureType);
     }
 }

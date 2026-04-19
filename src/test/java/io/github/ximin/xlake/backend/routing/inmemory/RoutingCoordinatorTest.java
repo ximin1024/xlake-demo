@@ -17,8 +17,9 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.routing;
+package io.github.ximin.xlake.backend.routing.inmemory;
 
+import io.github.ximin.xlake.backend.routing.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +30,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class InMemoryRoutingCoordinatorTest {
+class RoutingCoordinatorTest {
     private InMemoryShardRoutingTable routingTable;
     private InMemoryRoutingCoordinator coordinator;
 

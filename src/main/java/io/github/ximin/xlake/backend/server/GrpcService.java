@@ -244,7 +244,7 @@ public class GrpcService extends QueryServiceGrpc.QueryServiceImplBase {
                             .setMemoryUsedMb((long) (loadInfo.getMemoryUsage() * totalMemoryMb))
                             .setCoresTotal(totalCores)
                             .setCoresUsed((int) (loadInfo.getCpuUsage() * totalCores)))
-                    .setApplicationId("nebulake-backend")
+                    .setApplicationId("xlake-backend")
                     .setApplicationState("RUNNING")
                     .setNumRunningJobs(jobScheduler.getQueueLength())
                     .setNumPendingJobs(loadInfo.getQueueLength())

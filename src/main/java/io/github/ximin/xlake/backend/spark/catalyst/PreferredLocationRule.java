@@ -17,8 +17,10 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.spark;
+package io.github.ximin.xlake.backend.spark.catalyst;
 
+import io.github.ximin.xlake.backend.spark.XlakeDataSource;
+import io.github.ximin.xlake.backend.spark.XlakeWriteTopology;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.rules.Rule;
 import org.apache.spark.sql.execution.SparkPlan;
@@ -63,8 +65,7 @@ public final class PreferredLocationRule extends Rule<SparkPlan> {
             return plan;
         }
 
-        return appendDataExec.withNewChildInternal(
-                new PreferredLocationExec(appendDataExec.child(), preferredLocations)
-        );
+        SparkPlan newChild = new PreferredLocationExec(appendDataExec.child(), preferredLocations);
+        return appendDataExec.withNewChildInternal(newChild);
     }
 }

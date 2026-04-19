@@ -19,6 +19,10 @@
  */
 package io.github.ximin.xlake.backend.spark.routing;
 
+import io.github.ximin.xlake.backend.routing.RecoveryCompleteMessage;
+import io.github.ximin.xlake.backend.routing.RecoveryFailureType;
+import io.github.ximin.xlake.backend.routing.RecoveryTaskMessage;
+import io.github.ximin.xlake.backend.routing.ShardRecoveryRecord;
 import io.github.ximin.xlake.storage.DynamicMmapStore;
 import io.github.ximin.xlake.storage.block.DataBlock;
 import io.github.ximin.xlake.storage.table.TableStore;
@@ -27,10 +31,9 @@ import io.github.ximin.xlake.table.XlakeTable;
 import io.github.ximin.xlake.table.Snapshot;
 import io.github.ximin.xlake.table.TableMeta;
 import io.github.ximin.xlake.table.op.KvWriteBuilder;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.SparkEnv;
-import org.apache.spark.rpc.RpcCallContext;
-import org.apache.spark.rpc.RpcEndpoint;
-import org.apache.spark.rpc.RpcEnv;
+import org.apache.spark.rpc.*;
 import scala.PartialFunction;
 import scala.runtime.AbstractPartialFunction;
 import scala.runtime.BoxedUnit;
@@ -38,6 +41,7 @@ import scala.runtime.BoxedUnit;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 public final class ExecutorShardEndpoint implements RpcEndpoint {
     public static final String ENDPOINT_PREFIX = "xlake-executor-shard-endpoint-";
     private static final int MAX_BATCH_IDS_PER_SHARD = 1024;
@@ -83,8 +87,9 @@ public final class ExecutorShardEndpoint implements RpcEndpoint {
         return new AbstractPartialFunction<>() {
             @Override
             public boolean isDefinedAt(Object message) {
+
                 return message instanceof RoutingMessages.ShardWriteForward
-                        || message instanceof RoutingMessages.QueryLocalBlocksMessage;
+                        || message instanceof RecoveryTaskMessage;
             }
 
             @Override
@@ -95,8 +100,9 @@ public final class ExecutorShardEndpoint implements RpcEndpoint {
                     } catch (Exception e) {
                         context.reply(RoutingMessages.WriteAck.error("apply_failed"));
                     }
-                } else if (message instanceof RoutingMessages.QueryLocalBlocksMessage query) {
-                    context.reply(handleQueryLocalBlocks(query));
+                }
+                if (message instanceof RecoveryTaskMessage task) {
+                    context.reply(handleRecoveryTask(task));
                 }
                 return BoxedUnit.UNIT;
             }
@@ -142,14 +148,43 @@ public final class ExecutorShardEndpoint implements RpcEndpoint {
         }
     }
 
-    private RoutingMessages.LocalBlocksResponse handleQueryLocalBlocks(RoutingMessages.QueryLocalBlocksMessage query) {
+    private boolean handleRecoveryTask(RecoveryTaskMessage task) {
+        boolean allSuccess = true;
+        for (ShardRecoveryRecord record : task.shards()) {
+            try {
+                DynamicMmapStore store = DynamicMmapStore.getInstance(task.basePath(), task.storeId());
+                store.recoverShard(record);
+                sendRecoveryComplete(RecoveryCompleteMessage.success(record.shardId(), record.epoch()));
+            } catch (Exception e) {
+                allSuccess = false;
+                log.error("Recovery failed for shard {} from executor {}",
+                        record.shardId(), record.previousExecutorId(), e);
+                sendRecoveryComplete(RecoveryCompleteMessage.failure(
+                        record.shardId(), record.epoch(),
+                        e.getMessage() != null ? e.getMessage() : "Unknown error",
+                        RecoveryFailureType.WAL_REPLAY_FAILURE
+                ));
+            }
+        }
+        return allSuccess;
+    }
+
+    private void sendRecoveryComplete(RecoveryCompleteMessage message) {
         try {
-            DynamicMmapStore store = DynamicMmapStore.getInstance(query.basePath(), query.storeId());
-            TableStore tableStore = store.tableStore(query.tableIdentifier());
-            List<DataBlock> blocks = tableStore.currentDataBlocks();
-            return new RoutingMessages.LocalBlocksResponse(blocks);
+            RpcEnv env = SparkEnv.get().rpcEnv();
+            RpcAddress driverAddress = SparkEnv.get().conf().get("spark.driver.host") != null
+                    ? RpcAddress.apply(
+                    SparkEnv.get().conf().get("spark.driver.host"),
+                    Integer.parseInt(SparkEnv.get().conf().get("spark.driver.port", "0"))
+            )
+                    : null;
+            if (driverAddress != null) {
+                RpcEndpointRef driverRef = env.setupEndpointRef(driverAddress,
+                        DriverRoutingEndpoint.ENDPOINT_NAME);
+                driverRef.send(message);
+            }
         } catch (Exception e) {
-            return new RoutingMessages.LocalBlocksResponse(List.of());
+            log.error("Failed to send RecoveryCompleteMessage for shard {}", message.shardId(), e);
         }
     }
 

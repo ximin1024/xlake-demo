@@ -17,8 +17,9 @@
  * limitations under the License.
  * #L%
  */
-package io.github.ximin.xlake.backend.spark;
+package io.github.ximin.xlake.backend.spark.catalyst;
 
+import io.github.ximin.xlake.backend.spark.XlakeDataSource;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.analysis.NamedRelation;

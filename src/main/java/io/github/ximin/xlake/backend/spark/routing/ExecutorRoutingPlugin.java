@@ -32,10 +32,6 @@ import java.util.Map;
 import java.util.Objects;
 
 public final class ExecutorRoutingPlugin implements ExecutorPlugin {
-    static final String CONF_REGISTER_MAX_RETRIES = "spark.xlake.routing.register.maxRetries";
-    static final String CONF_REGISTER_BACKOFF_MS = "spark.xlake.routing.register.backoffMs";
-    static final String CONF_REGISTER_FAIL_OPEN = "spark.xlake.routing.register.failOpen";
-
     private PluginContext pluginContext;
     private String executorId;
     private boolean registrationSucceeded;
@@ -46,9 +42,9 @@ public final class ExecutorRoutingPlugin implements ExecutorPlugin {
         this.pluginContext = Objects.requireNonNull(pluginContext, "pluginContext must not be null");
         this.executorId = requireExecutorId(pluginContext);
         int slotIndex = resolveSlotIndex(executorId);
-        int maxRetries = pluginContext.conf().getInt(CONF_REGISTER_MAX_RETRIES, 3);
-        long backoffMs = pluginContext.conf().getLong(CONF_REGISTER_BACKOFF_MS, 200L);
-        boolean failOpen = pluginContext.conf().getBoolean(CONF_REGISTER_FAIL_OPEN, false);
+        int maxRetries = pluginContext.conf().getInt("spark.xlake.routing.register.maxRetries", 3);
+        long backoffMs = pluginContext.conf().getLong("spark.xlake.routing.register.backoffMs", 200L);
+        boolean failOpen = pluginContext.conf().getBoolean("spark.xlake.routing.register.failOpen", false);
 
         try {
             askWithRetry(new RoutingMessages.RegisterExecutorMessage(
@@ -56,10 +52,8 @@ public final class ExecutorRoutingPlugin implements ExecutorPlugin {
                     pluginContext.hostname(),
                     slotIndex
             ), maxRetries, backoffMs);
-            askWithRetry(new RoutingMessages.ExecutorReadyMessage(executorId), maxRetries, backoffMs);
-            registrationSucceeded = true;
 
-            SparkEnv env = SparkEnv.get();
+            org.apache.spark.SparkEnv env = SparkEnv.get();
             if (env == null || env.rpcEnv() == null) {
                 if (!failOpen) {
                     throw new IllegalStateException("SparkEnv.rpcEnv is not available for executor " + executorId);
@@ -70,6 +64,9 @@ public final class ExecutorRoutingPlugin implements ExecutorPlugin {
             String endpointName = ExecutorShardEndpoint.ENDPOINT_PREFIX + executorId;
             rpcEnv.setupEndpoint(endpointName, new ExecutorShardEndpoint(rpcEnv));
             registerEndpointWithRetry(executorId, endpointName, maxRetries, backoffMs);
+
+            askWithRetry(new RoutingMessages.ExecutorReadyMessage(executorId), maxRetries, backoffMs);
+            registrationSucceeded = true;
         } catch (Exception e) {
             registrationSucceeded = false;
             if (!failOpen) {

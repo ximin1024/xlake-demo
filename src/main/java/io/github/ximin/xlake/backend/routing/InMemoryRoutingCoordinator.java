@@ -19,15 +19,30 @@
  */
 package io.github.ximin.xlake.backend.routing;
 
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import io.github.ximin.xlake.common.config.XlakeConfig;
+import io.github.ximin.xlake.common.config.XlakeOptions;
+import lombok.extern.slf4j.Slf4j;
 
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+@Slf4j
 public final class InMemoryRoutingCoordinator implements RoutingCoordinator {
     private final ShardRoutingTable routingTable;
+    private final Map<ShardId, List<ShardRecoveryRecord>> shardHistory = new ConcurrentHashMap<>();
+    private final XlakeConfig config;
+    private final Map<String, String> executorBasePaths = new ConcurrentHashMap<>();
+    private volatile Runnable pendingRecoveryDispatcher;
+    private final Map<ShardId, Set<String>> shardTableIdentifiers = new ConcurrentHashMap<>();
 
     public InMemoryRoutingCoordinator(ShardRoutingTable routingTable) {
-        this.routingTable = Objects.requireNonNull(routingTable);
+        this(routingTable, null);
+    }
+
+    public InMemoryRoutingCoordinator(ShardRoutingTable routingTable, XlakeConfig config) {
+        this.routingTable = Objects.requireNonNull(routingTable, "routingTable must not be null");
+        this.config = config;
     }
 
     @Override
@@ -42,7 +57,7 @@ public final class InMemoryRoutingCoordinator implements RoutingCoordinator {
             boolean prefersThisSlot = routingTable.preferredSlotOf(routing.shardId()).filter(nodeSlot::equals).isPresent();
             boolean currentlyOnDifferentSlot = assignment == null || !assignment.nodeSlot().equals(nodeSlot);
             if (routing.status() == RoutingStatus.REASSIGNING
-                    || (prefersThisSlot && currentlyOnDifferentSlot)) {
+                    || (prefersThisSlot && currentlyOnDifferentSlot && routing.status() != RoutingStatus.RECOVERING)) {
                 routingTable.reassignShard(routing.shardId());
             }
         }
@@ -61,7 +76,21 @@ public final class InMemoryRoutingCoordinator implements RoutingCoordinator {
         if (executorId == null || executorId.isBlank()) {
             throw new IllegalArgumentException("executorId must not be blank");
         }
-        routingTable.unregisterExecutorAndReassign(executorId);
+        List<ShardAssignment> assignments = routingTable.unregisterExecutorAndCollectAssignments(executorId);
+        if (assignments.isEmpty()) {
+            log.warn("onExecutorDown called for executor {} but no assignments found (already unregistered or duplicate trigger)", executorId);
+            return;
+        }
+        buildShardHistory(executorId, assignments);
+        executorBasePaths.remove(executorId);
+        Runnable dispatcher = pendingRecoveryDispatcher;
+        if (dispatcher != null) {
+            try {
+                dispatcher.run();
+            } catch (Exception e) {
+                log.error("Recovery task dispatcher failed after executor {} down", executorId, e);
+            }
+        }
     }
 
     @Override
@@ -85,5 +114,84 @@ public final class InMemoryRoutingCoordinator implements RoutingCoordinator {
             }
         }
         return routingTable.lookupBatch(shardIds);
+    }
+
+    public boolean onRecoveryComplete(ShardId shardId, RoutingEpoch epoch, boolean success) {
+        if (routingTable instanceof InMemoryShardRoutingTable table) {
+            if (success) {
+                boolean cleared = table.clearRecoveringFlag(shardId, epoch, () -> shardHistory.remove(shardId));
+                return cleared;
+            }
+        }
+        return false;
+    }
+
+    public List<ShardRecoveryRecord> getShardHistory(ShardId shardId) {
+        List<ShardRecoveryRecord> records = shardHistory.get(shardId);
+        return records == null ? Collections.emptyList() : List.copyOf(records);
+    }
+
+    public List<ShardLookupResult> getRecoveringShards() {
+        return routingTable.routings().stream()
+                .filter(r -> r.status() == RoutingStatus.RECOVERING)
+                .toList();
+    }
+
+    public void registerExecutorBasePath(String executorId, String basePath) {
+        if (basePath != null && !basePath.isBlank()) {
+            executorBasePaths.put(executorId, basePath);
+        }
+    }
+
+    public void setRecoveryTaskDispatcher(Runnable dispatcher) {
+        this.pendingRecoveryDispatcher = dispatcher;
+    }
+
+    public void registerShardTables(ShardId shardId, Set<String> tableIdentifiers) {
+        if (tableIdentifiers != null && !tableIdentifiers.isEmpty()) {
+            shardTableIdentifiers.put(shardId, Set.copyOf(tableIdentifiers));
+        }
+    }
+
+    @Override
+    public void reassignShard(ShardId shardId) {
+        routingTable.reassignShard(shardId);
+    }
+
+    @Override
+    public void reassignShardForRecovery(ShardId shardId) {
+        routingTable.reassignShardForRecovery(shardId);
+    }
+
+    private void buildShardHistory(String executorId, List<ShardAssignment> assignments) {
+        long lostTimestamp = System.currentTimeMillis();
+        String previousBasePath = executorBasePaths.getOrDefault(executorId, "");
+        String walHdfsDir = deriveWalHdfsDir(executorId);
+        for (ShardAssignment assignment : assignments) {
+            Set<String> tables = shardTableIdentifiers.getOrDefault(assignment.shardId(), Set.of());
+            ShardRecoveryRecord record = new ShardRecoveryRecord(
+                    assignment.shardId(),
+                    assignment.executorId(),
+                    assignment.nodeSlot().toString(),
+                    previousBasePath,
+                    walHdfsDir,
+                    tables,
+                    assignment.epoch(),
+                    lostTimestamp
+            );
+            shardHistory.computeIfAbsent(assignment.shardId(), k -> new CopyOnWriteArrayList<>()).add(record);
+        }
+    }
+
+    private String deriveWalHdfsDir(String executorId) {
+        if (config == null) {
+            return "";
+        }
+        String walHdfsPath = config.get(XlakeOptions.STORAGE_WAL_HDFS_PATH);
+        if (walHdfsPath == null || walHdfsPath.isBlank()) {
+            return "";
+        }
+        String base = walHdfsPath.endsWith("/") ? walHdfsPath.substring(0, walHdfsPath.length() - 1) : walHdfsPath;
+        return base + "/" + executorId;
     }
 }

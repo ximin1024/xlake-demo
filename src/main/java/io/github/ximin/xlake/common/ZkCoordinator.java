@@ -19,6 +19,8 @@
  */
 package io.github.ximin.xlake.common;
 
+import io.github.ximin.xlake.common.config.XlakeConfig;
+import io.github.ximin.xlake.common.config.XlakeOptions;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -29,20 +31,36 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.zookeeper.CreateMode;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 public class ZkCoordinator implements Coordinator {
     private final CuratorFramework zkClient;
+    private final XlakeConfig config;
     private final static String COUNTER_PATH = "/uniq_id/";
+    // Cache DistributedAtomicLong instances to avoid recreating them on every call
+    private final Map<String, DistributedAtomicLong> dalCache = new ConcurrentHashMap<>();
+
+    public ZkCoordinator(XlakeConfig config) {
+        this.config = config;
+        Duration connectionTimeout = config.get(XlakeOptions.ZOOKEEPER_CONNECTION_TIMEOUT);
+        Duration sessionTimeout = config.get(XlakeOptions.ZOOKEEPER_SESSION_TIMEOUT);
+        int retryCount = config.get(XlakeOptions.ZOOKEEPER_RETRY_COUNT);
+        long retryBaseSleep = config.get(XlakeOptions.ZOOKEEPER_RETRY_BASE_SLEEP_MS);
+
+        zkClient = CuratorFrameworkFactory.builder()
+                .connectString(config.get(XlakeOptions.ZOOKEEPER_CONNECT_STRING))
+                .retryPolicy(new ExponentialBackoffRetry((int) retryBaseSleep, retryCount))
+                .connectionTimeoutMs((int) connectionTimeout.toMillis())
+                .sessionTimeoutMs((int) sessionTimeout.toMillis())
+                .namespace(config.get(XlakeOptions.ZOOKEEPER_NAMESPACE))
+                .build();
+    }
 
     public ZkCoordinator() {
-        zkClient = CuratorFrameworkFactory.builder()
-                .connectString("127.0.0.1:2181")
-                .retryPolicy(new ExponentialBackoffRetry(1000, 3))
-                .connectionTimeoutMs(10 * 1000)
-                .sessionTimeoutMs(60 * 1000)
-                .namespace("ximin")
-                .build();
+        this(XlakeConfig.empty());
     }
 
     public void start() {
@@ -89,9 +107,12 @@ public class ZkCoordinator implements Coordinator {
 
     @Override
     public Long uniqId(String uniqTable) {
-        DistributedAtomicLong distributedAtomicLong =
-                new DistributedAtomicLong(zkClient, COUNTER_PATH + uniqTable,
-                        new ExponentialBackoffRetry(100, 3));
+        DistributedAtomicLong distributedAtomicLong = dalCache.computeIfAbsent(uniqTable, key -> {
+            int retryCount = config.get(XlakeOptions.ZOOKEEPER_RETRY_COUNT);
+            long retryBaseSleep = config.get(XlakeOptions.ZOOKEEPER_RETRY_BASE_SLEEP_MS);
+            return new DistributedAtomicLong(zkClient, COUNTER_PATH + key,
+                    new ExponentialBackoffRetry((int) retryBaseSleep, retryCount));
+        });
         try {
             AtomicValue<Long> nextId = distributedAtomicLong.increment();
             if (nextId.succeeded()) {

@@ -25,6 +25,8 @@ import java.util.Map;
 
 public class DynamicTableInfo implements Serializable {
 
+    public static final DynamicTableInfo EMPTY = new DynamicTableInfo.Builder().build();
+
     private final List<Snapshot> snapshots;
     private final Map<Long, List<String>> snapshotFiles;
     private final long currentSequenceNumber;
