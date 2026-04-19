@@ -129,7 +129,7 @@ public class Main {
 
     private SparkSession createSparkSession() {
         return SparkSession.builder()
-                .appName("NebulakeBackendServer")
+                .appName("XlakeBackendServer")
                 .master("local[*]")
                 .config("spark.ui.enabled", "false")
                 .config("spark.plugins", "io.github.ximin.xlake.backend.spark.XlakeSparkPlugin")

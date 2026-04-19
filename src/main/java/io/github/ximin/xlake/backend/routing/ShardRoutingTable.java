@@ -19,10 +19,7 @@
  */
 package io.github.ximin.xlake.backend.routing;
 
-import java.util.Collection;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 public interface ShardRoutingTable {
     ShardLookupResult lookup(ShardId shardId);
@@ -35,9 +32,18 @@ public interface ShardRoutingTable {
 
     void unregisterExecutorAndReassign(String executorId);
 
+    default List<ShardAssignment> unregisterExecutorAndCollectAssignments(String executorId) {
+        unregisterExecutorAndReassign(executorId);
+        return List.of();
+    }
+
     void assignShard(ShardAssignment assignment);
 
     void reassignShard(ShardId shardId);
+
+    default void reassignShardForRecovery(ShardId shardId) {
+        throw new UnsupportedOperationException("reassignShardForRecovery not implemented");
+    }
 
     Collection<ShardAssignment> assignments();
 

@@ -1,5 +1,6 @@
 package io.github.ximin.xlake.backend.spark
 
+import io.github.ximin.xlake.backend.spark.catalyst.{PreferredLocationRule, RangeRoutingRule}
 import org.apache.spark.sql.SparkSessionExtensions
 
 class XlakeSparkExtensions extends (SparkSessionExtensions => Unit) {

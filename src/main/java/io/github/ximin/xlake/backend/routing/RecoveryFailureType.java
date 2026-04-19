@@ -19,24 +19,13 @@
  */
 package io.github.ximin.xlake.backend.routing;
 
-import java.util.Map;
-import java.util.Set;
-
-public interface RoutingCoordinator {
-    void onExecutorUp(String executorId, NodeSlot nodeSlot);
-
-    void onExecutorReady(String executorId);
-
-    void onExecutorDown(String executorId);
-
-    ShardLookupResult lookupOwner(ShardId shardId);
-
-    Map<ShardId, ShardLookupResult> lookupOwners(Set<ShardId> shardIds);
-
-    default void reassignShard(ShardId shardId) {
-    }
-
-    default void reassignShardForRecovery(ShardId shardId) {
-        throw new UnsupportedOperationException("reassignShardForRecovery not implemented");
-    }
+public enum RecoveryFailureType {
+    WAL_HDFS_DOWNLOAD_FAILURE,
+    WAL_READ_CORRUPTION,
+    WAL_REPLAY_FAILURE,
+    PARQUET_HDFS_DOWNLOAD_FAILURE,
+    LMDB_INIT_FAILURE,
+    EPOCH_CONFLICT,
+    TIMEOUT,
+    UNKNOWN
 }

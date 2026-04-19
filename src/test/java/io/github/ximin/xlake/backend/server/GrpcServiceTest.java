@@ -601,7 +601,7 @@ class GrpcServiceTest {
             verify(clusterStatusObserver).onCompleted();
 
             ClusterStatus status = statusCaptor.getValue();
-            assertThat(status.getApplicationId()).isEqualTo("nebulake-backend");
+            assertThat(status.getApplicationId()).isEqualTo("xlake-backend");
             assertThat(status.getApplicationState()).isEqualTo("RUNNING");
             assertThat(status.getNumRunningJobs()).isEqualTo(3);
             assertThat(status.getExecutorsList()).hasSize(1);

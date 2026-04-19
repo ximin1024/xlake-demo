@@ -20,6 +20,9 @@
 package io.github.ximin.xlake.backend.spark.routing;
 
 import io.github.ximin.xlake.backend.routing.*;
+import io.github.ximin.xlake.common.config.ConfigFactory;
+import io.github.ximin.xlake.common.config.XlakeConfig;
+import io.github.ximin.xlake.common.config.XlakeOptions;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.plugin.DriverPlugin;
 import org.apache.spark.api.plugin.PluginContext;
@@ -72,6 +75,11 @@ public final class DriverRoutingPlugin implements DriverPlugin {
                         executorId,
                         new NodeSlot(nodeId, slotIndex)
                 );
+                if (routingCoordinator instanceof InMemoryRoutingCoordinator coordinator) {
+                    XlakeConfig config = ConfigFactory.createDefault();
+                    String basePath = config.get(XlakeOptions.STORAGE_MMAP_PATH);
+                    coordinator.registerExecutorBasePath(executorId, basePath);
+                }
                 return null;
             }
             case RoutingMessages.ExecutorReadyMessage(String executorId) -> {

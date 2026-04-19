@@ -24,37 +24,42 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Policy;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.base.Throwables;
+import io.github.ximin.xlake.backend.routing.ShardRecoveryRecord;
+import io.github.ximin.xlake.backend.wal.*;
 import io.github.ximin.xlake.common.SingletonContainer;
+import io.github.ximin.xlake.common.config.ConfigFactory;
+import io.github.ximin.xlake.common.config.XlakeConfig;
+import io.github.ximin.xlake.common.config.XlakeOptions;
 import io.github.ximin.xlake.storage.flush.DefaultFlushCoordinator;
 import io.github.ximin.xlake.storage.flush.FlushCoordinator;
 import io.github.ximin.xlake.storage.flush.FlushPlan;
+import io.github.ximin.xlake.storage.flush.ParquetHdfsUploader;
 import io.github.ximin.xlake.storage.lmdb.LmdbInstance;
 import io.github.ximin.xlake.storage.table.StoreState;
 import io.github.ximin.xlake.storage.table.TableStorage;
 import io.github.ximin.xlake.storage.table.TableStore;
+import io.github.ximin.xlake.storage.table.record.NullableValueCodec;
 import io.github.ximin.xlake.table.PrimaryKey;
 import io.github.ximin.xlake.table.TableId;
-import io.github.ximin.xlake.table.op.Read;
-import io.github.ximin.xlake.table.op.Scan;
-import io.github.ximin.xlake.table.op.Write;
-import io.github.ximin.xlake.table.op.WriteBuilder;
+import io.github.ximin.xlake.table.op.*;
 import io.github.ximin.xlake.writer.LmdbWriter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.spark.TaskContext;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static io.github.ximin.xlake.storage.lmdb.LmdbInstance.generateInstanceId;
 
@@ -109,12 +114,24 @@ public class DynamicMmapStore {
     private final DelayQueue<PendingDeletionItem> deletionQueue = new DelayQueue<>();
     private final Thread deletionThread;
     private final FlushCoordinator flushCoordinator;
+    private final ParquetHdfsUploader parquetHdfsUploader;
 
     // todo
     private final Consumer<FlushedInfo> metadataUpdater;
 
+    private final WAL wal;
+    private final boolean walEnabled;
+    private final WALConfig walConfig;
+    private final Configuration hadoopConf;
+    private final AtomicLong walFailedCount = new AtomicLong(0);
+
     public static DynamicMmapStore getInstance(String basePath, String id) {
-        return SingletonContainer.getInstance(DynamicMmapStore.class, basePath, id);
+        return SingletonContainer.getInstance(DynamicMmapStore.class, basePath, id, new Configuration());
+    }
+
+    public static DynamicMmapStore getInstance(String basePath, String id, Configuration hadoopConf) {
+        return SingletonContainer.getInstance(DynamicMmapStore.class, basePath, id,
+                hadoopConf != null ? hadoopConf : new Configuration());
     }
 
     // 加载DynamicMmapStore时，需要做很多工作，并不仅仅是创建一个新的lmdb实例这么简单
@@ -123,7 +140,8 @@ public class DynamicMmapStore {
     // 然后就是判断是否需要从wal进行回放生成lmdb实例，因为要实现lmdb的容错，当某个executor失败，触发重建executor操作的时候，
     // 需要回放down掉的executor上所有没有被flush的lmdb实例
     // 这里就有一个要求，wal机制，要能标识出怎么回放。也就是说，当某个lmdb被flush后，也要往wal中插入一条数据
-    private DynamicMmapStore(String basePath) {
+    private DynamicMmapStore(String basePath, String id, Configuration hadoopConf) {
+        this.hadoopConf = hadoopConf;
         this.basePath = basePath;
         // todo read from conf
         this.instanceMappedBytes = 128 * 1024 * 1024;
@@ -143,6 +161,36 @@ public class DynamicMmapStore {
         this.writableNum = Runtime.getRuntime().availableProcessors();
         this.remoteBasePath = "";
 
+        XlakeConfig config = ConfigFactory.createDefault();
+        this.walEnabled = config.get(XlakeOptions.STORAGE_WAL_ENABLED);
+        if (walEnabled) {
+            String compressionCodec = config.get(XlakeOptions.STORAGE_WAL_COMPRESSION_CODEC);
+            String storeId = config.get(XlakeOptions.STORAGE_STORE_ID);
+            String walHdfsPath = config.get(XlakeOptions.STORAGE_WAL_HDFS_PATH);
+            String executorId = resolveExecutorId();
+            String fileFormat = config.get(XlakeOptions.STORAGE_WAL_FILE_FORMAT);
+            this.walConfig = new WALConfig(
+                    basePath + "/wal",
+                    "wal",
+                    config.get(XlakeOptions.STORAGE_WAL_MAX_SIZE_BYTES),
+                    true,
+                    config.get(XlakeOptions.STORAGE_WAL_BUFFER_SIZE),
+                    compressionCodec != null ? compressionCodec : "NONE",
+                    storeId != null ? storeId : "default",
+                    executorId,
+                    walHdfsPath != null ? walHdfsPath : "",
+                    config.get(XlakeOptions.STORAGE_WAL_SYNC_INTERVAL_MS)
+            );
+            this.wal = new WAL(walConfig, fileFormat, hadoopConf);
+            log.info("WAL enabled with format={}, bufferSize={}, maxSize={}, hdfs={}",
+                    fileFormat, walConfig.bufferSize(), walConfig.segmentSize(),
+                    walConfig.isHdfsEnabled() ? walConfig.hdfsBasePath() : "disabled");
+        } else {
+            this.walConfig = null;
+            this.wal = null;
+            log.info("WAL disabled");
+        }
+
         loadExistInstance();
 
         this.flushExecutor = Executors.newFixedThreadPool(1);
@@ -150,6 +198,11 @@ public class DynamicMmapStore {
         this.monitorService = Executors.newScheduledThreadPool(1);
         this.monitorService.scheduleAtFixedRate(this::monitorMemory, 5, 5, TimeUnit.MINUTES);
         this.flushCoordinator = new DefaultFlushCoordinator(this::tableStore);
+        String walHdfsPath = config.get(XlakeOptions.STORAGE_WAL_HDFS_PATH);
+        this.parquetHdfsUploader = new ParquetHdfsUploader(
+                walHdfsPath != null && !walHdfsPath.isBlank() ? walHdfsPath.replaceFirst("/wal$", "/data") : "",
+                hadoopConf
+        );
 
         this.deletionThread = new Thread(this::processDeletions, "Lmdb-Deletion-Thread");
         deletionThread.setDaemon(true);
@@ -161,10 +214,6 @@ public class DynamicMmapStore {
                 // TODO: RPC call to Driver MetaStore to update Partition -> File mapping
             }
         };
-    }
-
-    private DynamicMmapStore(String basePath, String id) {
-        this(basePath);
     }
 
     public StoreState currentState() {
@@ -212,6 +261,12 @@ public class DynamicMmapStore {
             Thread.currentThread().interrupt();
         }
 
+        if (wal != null) {
+            wal.close();
+        }
+
+        parquetHdfsUploader.close();
+
         tableStores.forEach((key, tableStore) -> tableStore.close());
     }
 
@@ -226,19 +281,6 @@ public class DynamicMmapStore {
 
     private boolean checkMemoryAvailable() {
         return totalUsedMemory.get() + instanceMappedBytes < totalMemoryLimitBytes * 0.9;
-    }
-
-    private long calculateTotalUsedMemory() {
-        AtomicLong total = new AtomicLong();
-        instances.asMap().values().forEach(instanceId -> {
-            try {
-                addMemory(getLmdbInstance(instanceId.get()).getTotalUsageSize());
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        });
-
-        return total.get();
     }
 
     private void monitorMemory() {
@@ -275,7 +317,23 @@ public class DynamicMmapStore {
             log.info("Planned flush {} for instance {} to {}",
                     plan.planId(), instance.instanceId(), plan.targetLocation().storagePath().location());
             flushCoordinator.afterFlush(tableIdentifier, instance, plan);
-            deletionQueue.offer(new PendingDeletionItem(instance, 30_000));
+
+            boolean hdfsUploaded = parquetHdfsUploader.uploadFromLocal(
+                    instance.path().resolve(instance.instanceId() + ".parquet"),
+                    tableIdentifier,
+                    instance.instanceId() + ".parquet"
+            );
+
+            if (hdfsUploaded) {
+                if (walEnabled && wal != null) {
+                    wal.insertSyncMarker(tableIdentifier);
+                }
+                deletionQueue.offer(new PendingDeletionItem(instance, 30_000));
+            } else {
+                flushCoordinator.onFlushFailure(tableIdentifier, instance,
+                        new IOException("HDFS upload failed for instance " + instance.instanceId()));
+                log.error("HDFS upload failed for instance {}, LMDB instance kept alive for retry", instance.instanceId());
+            }
         } catch (Exception e) {
             flushCoordinator.onFlushFailure(tableIdentifier, instance, e);
             log.error("Flush failed for instance {}", instance.instanceId(), e);
@@ -340,6 +398,187 @@ public class DynamicMmapStore {
                     });
         } catch (IOException e) {
             throw new RuntimeException(e);
+        }
+
+        // WAL recovery: replay unflushed records from WAL files
+        if (walEnabled && wal != null) {
+            recoverFromWAL();
+        }
+    }
+
+    private void recoverFromWAL() {
+        String walPath;
+        boolean isHdfs = walConfig != null && walConfig.isHdfsEnabled();
+
+        if (isHdfs) {
+            walPath = walConfig.hdfsBasePath() + "/" + walConfig.executorId();
+            log.info("Starting WAL recovery from HDFS: {}", walPath);
+        } else {
+            walPath = basePath + "/wal";
+            Path walDir = Paths.get(walPath);
+            if (!Files.exists(walDir)) {
+                log.info("WAL directory does not exist, skipping recovery: {}", walPath);
+                return;
+            }
+            log.info("Starting WAL recovery from local: {}", walPath);
+        }
+
+        try {
+            WALReader reader = new WALReader(walPath, hadoopConf);
+            List<WALRecord> unflushedRecords = reader.readUnflushed();
+            reader.close();
+
+            if (unflushedRecords.isEmpty()) {
+                log.info("No unflushed WAL records found");
+                return;
+            }
+
+            log.info("Found {} unflushed WAL records to replay", unflushedRecords.size());
+
+            Map<String, List<WALRecord>> recordsByTable = unflushedRecords.stream()
+                    .filter(r -> r.value().length > 0)
+                    .collect(Collectors.groupingBy(record -> {
+                        String tableId = extractTableIdFromWALRecord(record.value());
+                        return tableId != null ? tableId : "unknown";
+                    }));
+
+            for (Map.Entry<String, List<WALRecord>> entry : recordsByTable.entrySet()) {
+                String tableIdentifier = entry.getKey();
+                List<WALRecord> records = entry.getValue();
+
+                log.info("Replaying {} WAL records for table {}", records.size(), tableIdentifier);
+
+                TableStore tableStore = tableStores.computeIfAbsent(
+                        tableIdentifier,
+                        t -> new TableStore(t, writableNum)
+                );
+
+                LmdbInstance instance = tableStore.getCurrentWritableInstance();
+                if (instance == null) {
+                    createNewInstance(tableIdentifier);
+                    instance = tableStore.getCurrentWritableInstance();
+                }
+
+                if (instance == null) {
+                    log.error("Cannot recover WAL for table {}: no writable instance available", tableIdentifier);
+                    continue;
+                }
+
+                for (WALRecord record : records) {
+                    try {
+                        byte[] key = extractKeyFromWALRecord(record);
+                        byte[] rawValue = extractValueFromWALRecord(record.value());
+                        byte[] encodedValue = NullableValueCodec.encode(rawValue);
+                        LmdbInstance.PutStatus status = instance.put(key, encodedValue);
+                        if (status != LmdbInstance.PutStatus.SUCCESS) {
+                            log.warn("WAL replay failed for key in table {}: status={}",
+                                    tableIdentifier, status);
+                        }
+                    } catch (Exception e) {
+                        log.error("Failed to replay WAL record for table {}", tableIdentifier, e);
+                    }
+                }
+            }
+
+            if (!isHdfs) {
+                cleanupWALFiles(walPath);
+            }
+            log.info("WAL recovery completed" + (isHdfs ? " (HDFS files retained for cross-node recovery)" : " and cleanup done"));
+
+        } catch (Exception e) {
+            log.error("WAL recovery failed", e);
+        }
+    }
+
+    private byte[] extractKeyFromWALRecord(WALRecord record) {
+        // WAL record value format: tableIdentifierLength(4bytes) + tableIdentifier + keyLength(4bytes) + key + valueLength(4bytes) + value
+        // This is set by the write path when creating WAL records
+        byte[] data = record.value();
+        if (data == null || data.length < 8) {
+            return new byte[0];
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(data);
+
+        // Skip tableIdentifier
+        int tableIdLen = buffer.getInt();
+        if (tableIdLen < 0 || tableIdLen > data.length - 4) {
+            return new byte[0];
+        }
+        buffer.position(buffer.position() + tableIdLen);
+
+        // Read key
+        if (buffer.remaining() < 4) {
+            return new byte[0];
+        }
+        int keyLength = buffer.getInt();
+        if (keyLength < 0 || keyLength > buffer.remaining()) {
+            return new byte[0];
+        }
+        byte[] key = new byte[keyLength];
+        buffer.get(key);
+        return key;
+    }
+
+    /**
+     * Extract value from WAL record data.
+     * WAL data format: tableIdentifierLength(4bytes) + tableIdentifier + keyLength(4bytes) + key + valueLength(4bytes) + value
+     */
+    private byte[] extractValueFromWALRecord(byte[] data) {
+        if (data == null || data.length < 8) {
+            return new byte[0];
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(data);
+
+        // Skip tableIdentifier
+        int tableIdLen = buffer.getInt();
+        if (tableIdLen < 0 || tableIdLen > data.length - 4) {
+            return new byte[0];
+        }
+        buffer.position(buffer.position() + tableIdLen);
+
+        // Skip key
+        if (buffer.remaining() < 4) {
+            return new byte[0];
+        }
+        int keyLen = buffer.getInt();
+        if (keyLen < 0 || keyLen > buffer.remaining() - 4) {
+            return new byte[0];
+        }
+        buffer.position(buffer.position() + keyLen);
+
+        // Read value
+        if (buffer.remaining() < 4) {
+            return new byte[0];
+        }
+        int valueLen = buffer.getInt();
+        if (valueLen < 0 || valueLen > buffer.remaining()) {
+            return new byte[0];
+        }
+        byte[] value = new byte[valueLen];
+        buffer.get(value);
+        return value;
+    }
+
+    private void cleanupWALFiles(String walPath) {
+        try {
+            Path walDir = Paths.get(walPath);
+            try (var files = Files.list(walDir)) {
+                files.filter(Files::isRegularFile)
+                        .filter(p -> {
+                            String name = p.getFileName().toString();
+                            return name.endsWith(".parquet") || name.endsWith(".nwl");
+                        })
+                        .forEach(p -> {
+                            try {
+                                Files.delete(p);
+                                log.debug("Deleted WAL file: {}", p);
+                            } catch (IOException e) {
+                                log.warn("Failed to delete WAL file: {}", p, e);
+                            }
+                        });
+            }
+        } catch (IOException e) {
+            log.warn("Failed to cleanup WAL files", e);
         }
     }
 
@@ -484,12 +723,7 @@ public class DynamicMmapStore {
     public void write(WriteBuilder builder, RoutingOwnerContext ownerContext) {
         String tableIdentifier = builder.table().uniqId();
         TableStore tableStore = tableStore(tableIdentifier);
-        int attempts = 0;
-        int maxAttempts = 100;
         while (true) {
-            if (++attempts > maxAttempts) {
-                throw new RuntimeException("Write failed for table " + tableIdentifier + " after " + maxAttempts + " attempts: instance rotation or memory pressure not resolved");
-            }
             LmdbInstance current = currentLmdbInstance(tableIdentifier);
             if (current == null) {
                 createNewInstance(tableIdentifier);
@@ -515,6 +749,10 @@ public class DynamicMmapStore {
                     }
                     continue;
                 }
+
+                // Extract key/value for WAL BEFORE LMDB write (for recovery)
+                byte[] walData = extractWalData(builder, tableIdentifier);
+
                 Write.Result result;
                 try {
                     result = tableStore.write(builder, current);
@@ -523,6 +761,28 @@ public class DynamicMmapStore {
                 }
 
                 if (result.success()) {
+                    // WAL must be written AFTER successful LMDB write for durability guarantee
+                    // WAL failures should NOT propagate to write path (WAL is best-effort)
+                    if (walEnabled && wal != null) {
+                        try {
+                            WALRecord walRecord = new DefaultWALRecord(
+                                    -1, // sequence will be assigned by Disruptor
+                                    walData,
+                                    System.nanoTime(),
+                                    -1L, // commitId
+                                    tableIdentifier,
+                                    walData.length > 0 ? "DATA" : "SYNC_MARKER"
+                            );
+                            wal.append(walRecord, false);
+                        } catch (WALWriteException e) {
+                            log.error("WAL consumer has stopped, cannot guarantee data durability", e);
+                            walFailedCount.incrementAndGet();
+                        } catch (Exception e) {
+                            log.warn("WAL append failed, continuing (data may be lost on crash)", e);
+                            walFailedCount.incrementAndGet();
+                        }
+                    }
+
                     addMemory(result.count());
                     totalRecords.merge(tableIdentifier,
                             new AtomicInteger(1),
@@ -559,6 +819,49 @@ public class DynamicMmapStore {
         }
     }
 
+    /**
+     * Extract key and value data from WriteBuilder for WAL logging.
+     * Format: tableIdentifierLength(4 bytes) + tableIdentifier + keyLength(4 bytes) + key + valueLength(4 bytes) + value
+     * Returns empty array for non-KV operations (like map-based writes).
+     */
+    private byte[] extractWalData(WriteBuilder builder, String tableIdentifier) {
+        // Only support direct KV operations for WAL logging
+        if (builder instanceof KvWriteBuilder kvBuilder) {
+            byte[] key = kvBuilder.key();
+            byte[] value = kvBuilder.value();
+            if (key != null && value != null) {
+                byte[] tableIdBytes = tableIdentifier.getBytes();
+                ByteBuffer data = ByteBuffer.allocate(4 + tableIdBytes.length + 4 + key.length + 4 + value.length);
+                data.putInt(tableIdBytes.length);
+                data.put(tableIdBytes);
+                data.putInt(key.length);
+                data.put(key);
+                data.putInt(value.length);
+                data.put(value);
+                return data.array();
+            }
+        }
+        return new byte[0]; // Empty for non-KV operations
+    }
+
+    /**
+     * Extract key and tableIdentifier from WAL record data.
+     * Format: tableIdentifierLength(4 bytes) + tableIdentifier + keyLength(4 bytes) + key + valueLength(4 bytes) + value
+     */
+    private String extractTableIdFromWALRecord(byte[] data) {
+        if (data == null || data.length < 4) {
+            return null;
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(data);
+        int tableIdLen = buffer.getInt();
+        if (tableIdLen < 0 || tableIdLen > data.length - 4) {
+            return null;
+        }
+        byte[] tableIdBytes = new byte[tableIdLen];
+        buffer.get(tableIdBytes);
+        return new String(tableIdBytes);
+    }
+
     public Read.Result read(Read read) throws IOException {
         if (read.getDataBlocks().isEmpty()) {
             return Scan.Result.error("Read routing requires planned DataBlocks", null);
@@ -585,6 +888,263 @@ public class DynamicMmapStore {
     }
 
     public record FlushedInfo(String instanceId, String hdfsPath, boolean success, Throwable t) {
+    }
+
+    public void recoverFromLocalLMDB(String localBasePath, String tableIdentifier) {
+        Path baseDir = Paths.get(localBasePath);
+        if (!Files.exists(baseDir)) {
+            log.warn("Local LMDB path does not exist for recovery: {}", localBasePath);
+            return;
+        }
+
+        log.info("Starting local LMDB recovery from {} for table {}", localBasePath, tableIdentifier);
+        try (var instancePaths = Files.walk(baseDir, 2)) {
+            instancePaths
+                    .filter(Files::isDirectory)
+                    .filter(path -> path.getFileName().toString().startsWith("inst-"))
+                    .filter(path -> parseTableIdentifier(path.getFileName().toString()).equals(tableIdentifier))
+                    .sorted(Comparator.naturalOrder())
+                    .forEach(path -> {
+                        String instanceId = path.getFileName().toString();
+                        try {
+                            if (!checkMemoryAvailable()) {
+                                triggerFlushSync();
+                            }
+                            LmdbInstance instance = new LmdbInstance(instanceId, path.getParent(), instanceMappedBytes);
+                            addMemory(instance.getTotalUsageSize());
+                            instances.put(instanceId, CompletableFuture.completedFuture(instanceId));
+
+                            TableStore tableStore = tableStores.computeIfAbsent(
+                                    tableIdentifier,
+                                    t -> new TableStore(t, writableNum)
+                            );
+
+                            if (instance.readOnly()) {
+                                tableStore.addReadOnlyInstance(instance);
+                            } else if (tableStore.remainingWritable() < writableNum) {
+                                tableStore.addWritableInstance(instance);
+                            } else {
+                                instance.markAsReadOnly();
+                                tableStore.addReadOnlyInstance(instance);
+                            }
+                            log.info("Recovered local LMDB instance: {}", instanceId);
+                        } catch (Exception e) {
+                            log.error("Failed to recover local LMDB instance: {}", instanceId, e);
+                        }
+                    });
+        } catch (IOException e) {
+            log.error("Failed to scan local LMDB for recovery: {}", localBasePath, e);
+        }
+    }
+
+    public void recoverFromRemoteWAL(String walHdfsDir, String tableIdentifier) {
+        log.info("Starting remote WAL recovery from {} for table {}", walHdfsDir, tableIdentifier);
+
+        try {
+            org.apache.hadoop.fs.FileSystem fs = org.apache.hadoop.fs.FileSystem.get(hadoopConf);
+            org.apache.hadoop.fs.Path hdfsPath = new org.apache.hadoop.fs.Path(walHdfsDir);
+
+            if (!fs.exists(hdfsPath)) {
+                log.warn("WAL HDFS directory does not exist: {}", walHdfsDir);
+                return;
+            }
+
+            String dataHdfsDir = walHdfsDir.replace("/wal/", "/data/").replace("/wal", "/data");
+            org.apache.hadoop.fs.Path dataPath = new org.apache.hadoop.fs.Path(dataHdfsDir);
+            if (fs.exists(dataPath)) {
+                log.info("Downloading Parquet cold data from HDFS: {}", dataHdfsDir);
+                java.nio.file.Path localDataDir = Paths.get(basePath, "data_recovery", tableIdentifier);
+                Files.createDirectories(localDataDir);
+
+                org.apache.hadoop.fs.FileStatus[] dataFiles = fs.listStatus(dataPath,
+                        p -> p.getName().endsWith(".parquet"));
+                for (org.apache.hadoop.fs.FileStatus file : dataFiles) {
+                    try {
+                        org.apache.hadoop.fs.Path src = file.getPath();
+                        org.apache.hadoop.fs.Path dst = new org.apache.hadoop.fs.Path(
+                                localDataDir.resolve(src.getName()).toString());
+                        fs.copyToLocalFile(src, dst);
+                        log.info("Downloaded Parquet cold data from HDFS: {} -> {}", src.getName(), dst);
+                    } catch (Exception e) {
+                        log.error("Failed to download Parquet cold data file: {}", file.getPath(), e);
+                    }
+                }
+            } else {
+                log.info("No Parquet cold data directory found at HDFS: {}", dataHdfsDir);
+            }
+
+            java.nio.file.Path localWalDir = Paths.get(basePath, "wal_recovery", tableIdentifier);
+            Files.createDirectories(localWalDir);
+
+            org.apache.hadoop.fs.FileStatus[] files = fs.listStatus(hdfsPath,
+                    p -> p.getName().endsWith(".parquet") || p.getName().endsWith(".nwl"));
+
+            for (org.apache.hadoop.fs.FileStatus file : files) {
+                org.apache.hadoop.fs.Path src = file.getPath();
+                org.apache.hadoop.fs.Path dst = new org.apache.hadoop.fs.Path(
+                        localWalDir.resolve(src.getName()).toString());
+                fs.copyToLocalFile(src, dst);
+                log.info("Downloaded WAL segment from HDFS: {} -> {}", src.getName(), dst);
+            }
+
+            WALReader reader = new WALReader(localWalDir.toString(), hadoopConf);
+            List<WALRecord> unflushedRecords = reader.readUnflushed();
+            reader.close();
+
+            if (unflushedRecords.isEmpty()) {
+                log.info("No unflushed records found in remote WAL for table {}", tableIdentifier);
+                return;
+            }
+
+            Map<String, List<WALRecord>> recordsByTable = unflushedRecords.stream()
+                    .filter(r -> r.value().length > 0)
+                    .collect(Collectors.groupingBy(record -> {
+                        String tid = extractTableIdFromWALRecord(record.value());
+                        return tid != null ? tid : "unknown";
+                    }));
+
+            for (Map.Entry<String, List<WALRecord>> entry : recordsByTable.entrySet()) {
+                String tid = entry.getKey();
+                List<WALRecord> records = entry.getValue();
+
+                TableStore tableStore = tableStores.computeIfAbsent(tid, t -> new TableStore(t, writableNum));
+                LmdbInstance instance = tableStore.getCurrentWritableInstance();
+                if (instance == null) {
+                    createNewInstance(tid);
+                    instance = tableStore.getCurrentWritableInstance();
+                }
+                if (instance == null) {
+                    log.error("Cannot recover WAL for table {}: no writable instance", tid);
+                    continue;
+                }
+
+                for (WALRecord record : records) {
+                    try {
+                        byte[] key = extractKeyFromWALRecord(record);
+                        byte[] rawValue = extractValueFromWALRecord(record.value());
+                        byte[] encodedValue = NullableValueCodec.encode(rawValue);
+                        LmdbInstance.PutStatus status = instance.put(key, encodedValue);
+                        if (status != LmdbInstance.PutStatus.SUCCESS) {
+                            log.warn("WAL replay failed for key in table {}: status={}", tid, status);
+                        }
+                    } catch (Exception e) {
+                        log.error("Failed to replay WAL record for table {}", tid, e);
+                    }
+                }
+            }
+
+            cleanupWALFiles(localWalDir.toString());
+            log.info("Remote WAL recovery completed for table {}", tableIdentifier);
+
+        } catch (Exception e) {
+            log.error("Remote WAL recovery failed for table {}", tableIdentifier, e);
+        }
+    }
+
+    public void recoverShard(ShardRecoveryRecord record) {
+        log.info("Starting shard recovery for shard {} from executor {}",
+                record.shardId(), record.previousExecutorId());
+
+        String currentNodeId = buildNodeId();
+        String previousNodeId = record.previousNodeSlotId().contains(":")
+                ? record.previousNodeSlotId().substring(0, record.previousNodeSlotId().indexOf(':'))
+                : record.previousNodeSlotId();
+        boolean sameNode = currentNodeId.equals(previousNodeId);
+
+        if (sameNode && record.previousBasePath() != null && !record.previousBasePath().isBlank()) {
+            Set<String> tables = record.tableIdentifiers();
+            if (tables.isEmpty()) {
+                tables = discoverLocalTables(record.previousBasePath());
+            }
+            for (String tableIdentifier : tables) {
+                recoverFromLocalLMDB(record.previousBasePath(), tableIdentifier);
+            }
+        } else {
+            if (record.walHdfsDir() != null && !record.walHdfsDir().isBlank()) {
+                Set<String> tables = record.tableIdentifiers();
+                if (tables.isEmpty()) {
+                    tables = discoverRemoteWALTables(record.walHdfsDir());
+                }
+                for (String tableIdentifier : tables) {
+                    recoverFromRemoteWAL(record.walHdfsDir(), tableIdentifier);
+                }
+            } else {
+                log.warn("No recovery path available for shard {} - neither same node nor HDFS WAL available",
+                        record.shardId());
+            }
+        }
+
+        log.info("Shard recovery completed for shard {}", record.shardId());
+    }
+
+    private Set<String> discoverLocalTables(String localBasePath) {
+        java.util.Set<String> tables = new java.util.HashSet<>();
+        Path baseDir = Paths.get(localBasePath);
+        if (!Files.exists(baseDir)) {
+            return tables;
+        }
+        try (var dirs = Files.list(baseDir)) {
+            dirs.filter(Files::isDirectory)
+                    .filter(p -> !p.getFileName().toString().startsWith("."))
+                    .filter(p -> !p.getFileName().toString().equals("wal"))
+                    .forEach(p -> tables.add(p.getFileName().toString()));
+        } catch (IOException e) {
+            log.warn("Failed to discover local tables from {}", localBasePath, e);
+        }
+        return tables;
+    }
+
+    private Set<String> discoverRemoteWALTables(String walHdfsDir) {
+        java.util.Set<String> tables = new java.util.HashSet<>();
+        try {
+            org.apache.hadoop.fs.FileSystem fs = org.apache.hadoop.fs.FileSystem.get(hadoopConf);
+            org.apache.hadoop.fs.Path hdfsPath = new org.apache.hadoop.fs.Path(walHdfsDir);
+            if (!fs.exists(hdfsPath)) {
+                return tables;
+            }
+            org.apache.hadoop.fs.FileStatus[] files = fs.listStatus(hdfsPath,
+                    p -> p.getName().endsWith(".parquet") || p.getName().endsWith(".nwl"));
+            if (files.length == 0) {
+                return tables;
+            }
+            WALReader reader = new WALReader(walHdfsDir, hadoopConf);
+            List<WALRecord> unflushedRecords = reader.readUnflushed();
+            reader.close();
+            for (WALRecord r : unflushedRecords) {
+                if (r.value().length > 0) {
+                    String tid = extractTableIdFromWALRecord(r.value());
+                    if (tid != null && !"unknown".equals(tid)) {
+                        tables.add(tid);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to discover remote WAL tables from {}", walHdfsDir, e);
+        }
+        return tables;
+    }
+
+    private String buildNodeId() {
+        try {
+            return java.net.InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    private String resolveExecutorId() {
+        try {
+            TaskContext taskContext = TaskContext.get();
+            if (taskContext != null) {
+                String executorId = taskContext.getLocalProperty("executorId");
+                if (executorId != null && !executorId.isBlank()) {
+                    return "executor-" + executorId;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to get executorId from TaskContext, using fallback", e);
+        }
+        return "executor-unknown-" + ProcessHandle.current().pid();
     }
 
     private Path tablePath(String tableIdentifier) {

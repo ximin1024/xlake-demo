@@ -35,23 +35,19 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class RoutingWriteClient {
-    private static final String CONF_FORWARD_MAX_RETRIES = "spark.xlake.routing.forward.maxRetries";
-    private static final String CONF_FORWARD_BACKOFF_MS = "spark.xlake.routing.forward.backoffMs";
-
     private final RpcEndpointRef driverEndpoint;
     private final int maxRetries;
     private final long backoffMs;
 
     public RoutingWriteClient() {
         SparkConf conf = SparkEnv.get().conf();
-        // Use Spark's canonical driver ref resolution (works even when spark.driver.port=0 in some deploy modes).
         this.driverEndpoint = RpcUtils.makeDriverRef(
                 DriverRoutingEndpoint.ENDPOINT_NAME,
                 conf,
                 SparkEnv.get().rpcEnv()
         );
-        this.maxRetries = conf.getInt(CONF_FORWARD_MAX_RETRIES, 3);
-        this.backoffMs = conf.getLong(CONF_FORWARD_BACKOFF_MS, 100L);
+        this.maxRetries = conf.getInt("spark.xlake.routing.forward.maxRetries", 3);
+        this.backoffMs = conf.getLong("spark.xlake.routing.forward.backoffMs", 100L);
     }
 
     public RoutingMessages.WriteAck forward(

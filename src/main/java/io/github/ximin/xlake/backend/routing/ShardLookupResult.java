@@ -39,6 +39,9 @@ public record ShardLookupResult(
         if (status == RoutingStatus.PENDING_READY && assignment == null) {
             throw new IllegalArgumentException("assignment must not be null when status is PENDING_READY");
         }
+        if (status == RoutingStatus.RECOVERING && assignment == null) {
+            throw new IllegalArgumentException("assignment must not be null when status is RECOVERING");
+        }
         if (status == RoutingStatus.UNASSIGNED && assignment != null) {
             throw new IllegalArgumentException("assignment must be null when status is UNASSIGNED");
         }
@@ -53,6 +56,10 @@ public record ShardLookupResult(
 
     public static ShardLookupResult pendingReady(ShardAssignment assignment) {
         return new ShardLookupResult(assignment.shardId(), RoutingStatus.PENDING_READY, assignment);
+    }
+
+    public static ShardLookupResult recovering(ShardAssignment assignment) {
+        return new ShardLookupResult(assignment.shardId(), RoutingStatus.RECOVERING, assignment);
     }
 
     public static ShardLookupResult reassigning(ShardId shardId) {

@@ -19,8 +19,8 @@
  */
 package io.github.ximin.xlake.writer;
 
-import io.github.ximin.xlake.common.Config;
 import io.github.ximin.xlake.table.XlakeTable;
+import io.github.ximin.xlake.writer.config.Config;
 import org.apache.spark.sql.connector.write.DataWriter;
 
 public abstract class SparkV2WriterFactory<T> {

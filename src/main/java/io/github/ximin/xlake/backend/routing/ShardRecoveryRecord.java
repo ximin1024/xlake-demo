@@ -20,30 +20,31 @@
 package io.github.ximin.xlake.backend.routing;
 
 import java.io.Serializable;
+import java.util.Set;
 
-public record ShardAssignment(
+public record ShardRecoveryRecord(
         ShardId shardId,
-        NodeSlot nodeSlot,
-        String executorId,
+        String previousExecutorId,
+        String previousNodeSlotId,
+        String previousBasePath,
+        String walHdfsDir,
+        Set<String> tableIdentifiers,
         RoutingEpoch epoch,
-        boolean recovering
+        long lostTimestamp
 ) implements Serializable {
-    public ShardAssignment {
+    public ShardRecoveryRecord {
         if (shardId == null) {
             throw new IllegalArgumentException("shardId must not be null");
         }
-        if (nodeSlot == null) {
-            throw new IllegalArgumentException("nodeSlot must not be null");
+        if (previousExecutorId == null || previousExecutorId.isBlank()) {
+            throw new IllegalArgumentException("previousExecutorId must not be blank");
         }
-        if (executorId == null || executorId.isBlank()) {
-            throw new IllegalArgumentException("executorId must not be blank");
+        if (previousNodeSlotId == null || previousNodeSlotId.isBlank()) {
+            throw new IllegalArgumentException("previousNodeSlotId must not be blank");
         }
         if (epoch == null) {
             throw new IllegalArgumentException("epoch must not be null");
         }
-    }
-
-    public ShardAssignment(ShardId shardId, NodeSlot nodeSlot, String executorId, RoutingEpoch epoch) {
-        this(shardId, nodeSlot, executorId, epoch, false);
+        tableIdentifiers = tableIdentifiers == null ? Set.of() : Set.copyOf(tableIdentifiers);
     }
 }

@@ -19,13 +19,14 @@
  */
 package io.github.ximin.xlake.backend.wal;
 
-import java.io.IOException;
-import java.util.function.Consumer;
+public class WALWriteException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
 
-public interface WALSegment {
-    void append(byte[] data) throws IOException;
+    public WALWriteException(String message) {
+        super(message);
+    }
 
-    void sync() throws IOException;
-
-    void recover(Consumer<byte[]> recordConsumer) throws IOException;
+    public WALWriteException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

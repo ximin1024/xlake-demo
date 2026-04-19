@@ -23,12 +23,41 @@ public record WALConfig(String logDir,
                         String logFilePrefix,
                         long segmentSize,
                         boolean syncOnWrite,
-                        int bufferSize) {
+                        int bufferSize,
+                        String compressionCodec,
+                        String storeId,
+                        String executorId,
+                        String hdfsBasePath,
+                        long syncIntervalMs,
+                        long appendTimeoutMs) {
     public static final WALConfig DEFAULT = new WALConfig(
             "wal_logs",
             "wal",
-            1024 * 1024 * 100, // 100MB
+            1024 * 1024 * 100,
             true,
-            8192
+            8192,
+            "NONE",
+            "default",
+            "local",
+            "",
+            1000L,
+            30000L
     );
+
+    public WALConfig(String logDir, String logFilePrefix, long segmentSize, boolean syncOnWrite, int bufferSize) {
+        this(logDir, logFilePrefix, segmentSize, syncOnWrite, bufferSize, "NONE", "default", "local", "", 1000L, 30000L);
+    }
+
+    public WALConfig(String logDir, String logFilePrefix, long segmentSize, boolean syncOnWrite, int bufferSize, String compressionCodec) {
+        this(logDir, logFilePrefix, segmentSize, syncOnWrite, bufferSize, compressionCodec, "default", "local", "", 1000L, 30000L);
+    }
+
+    public WALConfig(String logDir, String logFilePrefix, long segmentSize, boolean syncOnWrite, int bufferSize,
+                     String compressionCodec, String storeId, String executorId, String hdfsBasePath, long syncIntervalMs) {
+        this(logDir, logFilePrefix, segmentSize, syncOnWrite, bufferSize, compressionCodec, storeId, executorId, hdfsBasePath, syncIntervalMs, 30000L);
+    }
+
+    public boolean isHdfsEnabled() {
+        return hdfsBasePath != null && !hdfsBasePath.isBlank();
+    }
 }
